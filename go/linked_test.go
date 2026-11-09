@@ -61,8 +61,16 @@ func TestAProgramCarriesOnlyTheTablesItAsksFor(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("go.mod", fmt.Sprintf("module linked\n\ngo 1.23\n\nrequire %[1]s v0.0.0\n\nreplace %[1]s => %[2]s\n",
-		modulePath, module))
+	// The module is written by the tool that reads it, which takes the path of the library as an
+	// argument and not as text of its own syntax, so that no path of the library's is one it cannot
+	// read.
+	write("go.mod", "module linked\n\ngo 1.23\n")
+	edit := exec.Command(goTool, "mod", "edit", "-require="+modulePath+"@v0.0.0",
+		"-replace="+modulePath+"="+module)
+	edit.Dir = dir
+	if out, err := edit.CombinedOutput(); err != nil {
+		t.Fatalf("go mod edit: %v\n%s", err, out)
+	}
 
 	for _, each := range []struct {
 		name string

@@ -10,6 +10,7 @@
 
 import assert from "node:assert/strict";
 import { it } from "node:test";
+import { fileURLToPath } from "node:url";
 import { build, transformSync } from "esbuild";
 import { CANONICAL_TO, COMBINING_CLASS_PAGES, DECOMPOSITION_POSITION_PAGES, STABLE_PAGES } from "../src/normalization_tables.ts";
 import { COMPATIBILITY_TO } from "../src/normalization_compatibility_tables.ts";
@@ -52,7 +53,7 @@ const SCENARIOS: readonly { readonly name: string; readonly program: string; rea
 
 // The sources are TypeScript where the tests run as it, and JavaScript where they were compiled.
 const EXTENSION = import.meta.url.endsWith(".ts") ? "ts" : "js";
-const SOURCES = new URL("../src/", import.meta.url).pathname;
+const SOURCES = fileURLToPath(new URL("../src/", import.meta.url));
 
 /** The program, bundled and minified, with the package's functions as a program imports them. */
 async function bundled(program: string): Promise<string> {

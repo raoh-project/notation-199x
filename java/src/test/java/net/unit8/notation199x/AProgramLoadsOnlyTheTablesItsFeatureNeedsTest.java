@@ -3,9 +3,9 @@ package net.unit8.notation199x;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.net.URISyntaxException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -97,23 +97,21 @@ class AProgramLoadsOnlyTheTablesItsFeatureNeedsTest {
     /** The classes of this library that a JVM running {@link Program} on {@code scenario} loads. */
     private static Set<String> classesLoadedBy(String scenario) throws IOException, InterruptedException,
             URISyntaxException {
-        Path log = Files.createTempFile("class-load", ".log");
-        try {
-            String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
-            String classPath = codeSource(Normalization.class) + System.getProperty("path.separator")
-                    + codeSource(Program.class);
-            Process process = new ProcessBuilder(java, "-Xshare:auto", "-Xlog:class+load=info:file=" + log + ":none",
-                    "-cp", classPath, Program.class.getName(), scenario)
-                    .redirectErrorStream(true)
-                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                    .start();
-            assertEquals(0, process.waitFor(), "the program of " + scenario + " ends");
-            return Files.readAllLines(log).stream()
-                    .map(line -> line.split(" ", 2)[0])
-                    .collect(Collectors.toSet());
-        } finally {
-            Files.deleteIfExists(log);
+        String java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
+        String classPath = codeSource(Normalization.class) + System.getProperty("path.separator")
+                + codeSource(Program.class);
+        // The log is written to the standard output, which the program writes nothing to, and not to
+        // a file named in the option, where a path is text of the option's syntax.
+        Process process = new ProcessBuilder(java, "-Xshare:auto", "-Xlog:class+load=info:stdout:none",
+                "-cp", classPath, Program.class.getName(), scenario)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start();
+        Set<String> loaded;
+        try (BufferedReader log = process.inputReader()) {
+            loaded = log.lines().map(line -> line.split(" ", 2)[0]).collect(Collectors.toSet());
         }
+        assertEquals(0, process.waitFor(), "the program of " + scenario + " ends");
+        return loaded;
     }
 
     private static Path codeSource(Class<?> type) throws URISyntaxException {

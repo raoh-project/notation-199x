@@ -68,13 +68,14 @@ type caseFacts struct {
 	// inContext is the mapping of r, between at and after in s, where a condition on the code points
 	// around it decides it: to, the mapping the tables give, or what replaces it. It is false where
 	// that is not decided within longest, when it is not negative and written code points have been
-	// written.
+	// written. It is nil where no condition decides the mapping, as in uppercase, and the mapping is
+	// then the one the tables give.
 	inContext func(s string, r rune, at, after, longest, written int, to []rune) ([]rune, bool)
 }
 
 var (
 	lowerCase = caseFacts{&lowerMapping, &lowerPosition, &lowerASCII, finalSigma}
-	upperCase = caseFacts{&upperMapping, &upperPosition, &upperASCII, unconditionally}
+	upperCase = caseFacts{&upperMapping, &upperPosition, &upperASCII, nil}
 )
 
 // mapCase is the mapped text, and false where it is longer than longest; a negative longest is
@@ -141,9 +142,12 @@ func mapCase(facts *caseFacts, s string, longest int) (string, bool) {
 		}
 		r, size := utf8.DecodeRuneInString(s[at:])
 		after := at + size
-		to, ok := facts.inContext(s, r, at, after, longest, written, (*facts.mapping)[facts.position.get(r)-1].to)
-		if !ok {
-			return "", false
+		to := (*facts.mapping)[facts.position.get(r)-1].to
+		if facts.inContext != nil {
+			var ok bool
+			if to, ok = facts.inContext(s, r, at, after, longest, written, to); !ok {
+				return "", false
+			}
 		}
 		if longest >= 0 && len(to) > longest-written {
 			return "", false
@@ -211,12 +215,6 @@ func finalSigma(s string, r rune, at, after, longest, written int, to []rune) ([
 		return finalSigmaMapping.of(r), decided
 	}
 	return to, decided
-}
-
-// unconditionally is upperCase's inContext: no condition on the code points around one decides
-// the uppercase mapping, so it is the mapping of the tables.
-func unconditionally(_ string, _ rune, _, _, _, _ int, to []rune) ([]rune, bool) {
-	return to, true
 }
 
 // isFinalSigma is Unicode's Final_Sigma condition of the code point between at and after:
