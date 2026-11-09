@@ -4,7 +4,19 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { it } from "node:test";
-import { type Form, normalize, normalizeWithin } from "../src/index.ts";
+import {
+  type Form,
+  normalize,
+  normalizeNFC,
+  normalizeNFCWithin,
+  normalizeNFD,
+  normalizeNFDWithin,
+  normalizeNFKC,
+  normalizeNFKCWithin,
+  normalizeNFKD,
+  normalizeNFKDWithin,
+  normalizeWithin,
+} from "../src/index.ts";
 import { eachLine, repositoryFile, shown } from "./suite.ts";
 
 const FORMS: readonly Form[] = ["NFC", "NFD", "NFKC", "NFKD"];
@@ -118,4 +130,29 @@ it("a form and a bound are what the caller is held to", () => {
   assert.equal(normalizeWithin("NFC", "", -1), undefined);
   // Half a surrogate pair comes back out where it was.
   assert.equal(normalize("NFC", "a\uD800\u0301"), "a\uD800\u0301");
+});
+
+// The function of each form answers what normalize and normalizeWithin do of it, of text that differs
+// in each form: a composed and a decomposed letter, a compatibility character, a Hangul syllable and
+// a composite past U+FFFF.
+it("the function of a form answers what normalize does of it", () => {
+  const each: Readonly<Record<Form, readonly [(text: string) => string,
+    (text: string, longest: number) => string | undefined]>> = {
+    NFC: [normalizeNFC, normalizeNFCWithin],
+    NFD: [normalizeNFD, normalizeNFDWithin],
+    NFKC: [normalizeNFKC, normalizeNFKCWithin],
+    NFKD: [normalizeNFKD, normalizeNFKDWithin],
+  };
+  const texts = ["", "abc", "e\u0301\u00E9", "\uFB01\u2460\u00C5", "\u1112\u1161\u11AB\uD55C",
+    "\u{11099}\u{110BA}", "a\uD800\u0301"];
+  for (const form of FORMS) {
+    const [whole, within] = each[form];
+    for (const text of texts) {
+      assert.equal(whole(text), normalize(form, text), `${form} of ${shown(text)}`);
+      const length = [...whole(text)].length;
+      assert.equal(within(text, length), normalizeWithin(form, text, length), `${form} of ${shown(text)}`);
+      assert.equal(within(text, length - 1), normalizeWithin(form, text, length - 1), `${form} of ${shown(text)}`);
+    }
+    assert.throws(() => within("a", 0.5), RangeError);
+  }
 });

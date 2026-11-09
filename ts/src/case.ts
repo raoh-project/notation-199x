@@ -6,15 +6,11 @@ import {
   CASE_CONTEXT_PAGES,
   FINAL_SIGMA_FROM,
   FINAL_SIGMA_TO,
-  LOWER_FROM,
   LOWER_POSITION_BLOCKS,
   LOWER_POSITION_PAGES,
   LOWER_TO,
-  UPPER_FROM,
-  UPPER_POSITION_BLOCKS,
-  UPPER_POSITION_PAGES,
-  UPPER_TO,
-} from "./case_tables.ts";
+} from "./case_lower_tables.ts";
+import { UPPER_POSITION_BLOCKS, UPPER_POSITION_PAGES, UPPER_TO } from "./case_upper_tables.ts";
 import { checkedBound, indexOf, scalarsIn, stop, valueAt, Written } from "./tables.ts";
 
 /**
@@ -28,18 +24,22 @@ import { checkedBound, indexOf, scalarsIn, stop, valueAt, Written } from "./tabl
  *
  * A case mapping is not closed under any normalization form, so a caller that holds its text in one
  * normalizes the answer. `text` is well formed (see {@link illFormedAt}); this does not ask.
+ *
+ * A program that calls this and not {@link uppercase} carries the lowercase tables and not the
+ * uppercase ones.
  */
 export function lowercase(text: string): string {
-  return mapped(text, true, Number.POSITIVE_INFINITY)!;
+  return mapped(text, LOWER, Number.POSITIVE_INFINITY)!;
 }
 
 /**
  * `text` in uppercase, by the same untailored full mapping as {@link lowercase}: one code point can
  * widen to several, so `uppercase("straße")` is `"STRASSE"`, and no locale narrows it, so a Turkish
- * `i` still becomes `I`.
+ * `i` still becomes `I`. A program that calls this and not {@link lowercase} carries the uppercase
+ * tables and not the lowercase ones.
  */
 export function uppercase(text: string): string {
-  return mapped(text, false, Number.POSITIVE_INFINITY)!;
+  return mapped(text, UPPER, Number.POSITIVE_INFINITY)!;
 }
 
 /**
@@ -50,12 +50,12 @@ export function uppercase(text: string): string {
  * `RangeError`.
  */
 export function lowercaseWithin(text: string, longest: number): string | undefined {
-  return mapped(text, true, checkedBound(longest));
+  return mapped(text, LOWER, checkedBound(longest));
 }
 
 /** {@link uppercase} where that is no longer than `longest` scalar values, as {@link lowercaseWithin}. */
 export function uppercaseWithin(text: string, longest: number): string | undefined {
-  return mapped(text, false, checkedBound(longest));
+  return mapped(text, UPPER, checkedBound(longest));
 }
 
 // What CASE_CONTEXT holds of a code point, a bit each.
@@ -68,47 +68,59 @@ function hasContext(cp: number, bit: number): boolean {
   return (valueAt(CASE_CONTEXT_BLOCKS, CASE_CONTEXT_PAGES, cp) & bit) !== 0;
 }
 
+/** What the lowercase mapping holds that the uppercase one does not: the code points `Final_Sigma`
+ *  names, and what they map to at the end of a cased run. */
+interface FinalSigma {
+  /** Whether `Final_Sigma` names `cp`: it maps otherwise where the condition holds. */
+  readonly names: (cp: number) => boolean;
+  /** What `cp`, which `names` answers for, maps to where the condition holds. */
+  readonly mapping: (cp: number) => string;
+  /** Whether the condition holds of the code point between `at` and `after`; see {@link isFinalSigma}. */
+  readonly holds: (s: string, at: number, after: number, most: number) => boolean | undefined;
+}
+
 /** One of the two mappings, as the conversion reads it. */
 interface Mapping {
   readonly blocks: string;
   readonly pages: string;
   readonly to: readonly string[];
+  /** What `Final_Sigma` makes of the mapping, where it has a condition. */
+  readonly finalSigma: FinalSigma | undefined;
   /**
    * What each ASCII character maps to, as a code unit, where the mapping makes it one ASCII
-   * character and no `Final_Sigma` entry names it, and -1 where the tables are asked.
+   * character and no `Final_Sigma` entry names it, and -1 where the tables are asked. Worked out the
+   * first time the mapping is asked, so that most text is mapped a unit at a time without a rule of
+   * its own about ASCII, and nothing is worked out when the module loads.
    */
-  readonly ascii: Int16Array;
+  ascii: Int16Array | undefined;
 }
 
-let lower: Mapping | undefined;
-let upper: Mapping | undefined;
+// One constant for each direction, each reaching the tables of that direction only: a bundler keeps
+// the tables of the direction a program asks for and leaves the other's out.
+const SIGMA: FinalSigma = {
+  names: (cp) => hasContext(cp, FINAL_SIGMA_NAMED),
+  mapping: (cp) => FINAL_SIGMA_TO[indexOf(FINAL_SIGMA_FROM, cp)]!,
+  holds: isFinalSigma,
+};
+const LOWER: Mapping = {
+  blocks: LOWER_POSITION_BLOCKS, pages: LOWER_POSITION_PAGES, to: LOWER_TO, finalSigma: SIGMA, ascii: undefined,
+};
+const UPPER: Mapping = {
+  blocks: UPPER_POSITION_BLOCKS, pages: UPPER_POSITION_PAGES, to: UPPER_TO, finalSigma: undefined, ascii: undefined,
+};
 
-/**
- * The mapping of the direction asked, made the first time it is asked: the ASCII row is read off
- * the tables, so that most text is mapped a unit at a time without a rule of its own about ASCII,
- * and nothing is worked out when the module loads.
- */
-function mappingOf(toLower: boolean): Mapping {
-  if (toLower) {
-    lower ??= mappingFrom(LOWER_POSITION_BLOCKS, LOWER_POSITION_PAGES, LOWER_FROM, LOWER_TO, true);
-    return lower;
-  }
-  upper ??= mappingFrom(UPPER_POSITION_BLOCKS, UPPER_POSITION_PAGES, UPPER_FROM, UPPER_TO, false);
-  return upper;
-}
-
-function mappingFrom(blocks: string, pages: string, from: readonly number[], to: readonly string[],
-  toLower: boolean): Mapping {
+/** What each ASCII character maps to in `mapping`, as `Mapping.ascii` says. */
+function asciiOf(mapping: Mapping): Int16Array {
   const ascii = new Int16Array(0x80);
   for (let c = 0; c < 0x80; c++) {
-    const at = indexOf(from, c);
-    const mappedTo = at < 0 ? undefined : to[at]!;
-    ascii[c] = toLower && indexOf(FINAL_SIGMA_FROM, c) >= 0 ? -1
+    const at = valueAt(mapping.blocks, mapping.pages, c);
+    const mappedTo = at === 0 ? undefined : mapping.to[at - 1]!;
+    ascii[c] = mapping.finalSigma?.names(c) ? -1
       : mappedTo === undefined ? c
       : mappedTo.length === 1 && mappedTo.charCodeAt(0) < 0x80 ? mappedTo.charCodeAt(0)
       : -1;
   }
-  return { blocks, pages, to, ascii };
+  return ascii;
 }
 
 /**
@@ -126,12 +138,13 @@ function mappingFrom(blocks: string, pages: string, from: readonly number[], to:
  * at a time, from `kept`, and the answer is made only once a code point that changes is met. Whether
  * one does is read off the position table, which answers where its mapping is as well.
  */
-function mapped(s: string, toLower: boolean, longest: number): string | undefined {
+function mapped(s: string, mapping: Mapping, longest: number): string | undefined {
   // Even the empty text is longer than a negative bound.
   if (longest < 0) {
     return undefined;
   }
-  const { blocks, pages, to, ascii } = mappingOf(toLower);
+  const { blocks, pages, to, finalSigma } = mapping;
+  const ascii = (mapping.ascii ??= asciiOf(mapping));
   // The answer up to kept, where a code point that changes has been met.
   let out: Written | undefined;
   let kept = 0;
@@ -173,18 +186,18 @@ function mapped(s: string, toLower: boolean, longest: number): string | undefine
       continue;
     }
     let mappedTo = to[valueAt(blocks, pages, cp) - 1]!;
-    if (toLower && hasContext(cp, FINAL_SIGMA_NAMED)) {
+    if (finalSigma?.names(cp)) {
       // The sigma is at least one scalar value of the answer, as every code point is, and each
       // Case_Ignorable one after it is another.
       if (written === longest) {
         return undefined;
       }
-      const isFinal = isFinalSigma(s, at, after, longest - written - 1);
+      const isFinal = finalSigma.holds(s, at, after, longest - written - 1);
       if (isFinal === undefined) {
         return undefined;
       }
       if (isFinal) {
-        mappedTo = FINAL_SIGMA_TO[indexOf(FINAL_SIGMA_FROM, cp)]!;
+        mappedTo = finalSigma.mapping(cp);
       }
     }
     const length = scalarsIn(mappedTo);

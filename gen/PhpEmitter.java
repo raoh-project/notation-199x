@@ -32,22 +32,24 @@ final class PhpEmitter {
      */
     static Map<Path, String> render(UcdModel model) {
         Map<Path, String> sources = new LinkedHashMap<>();
-        sources.put(Path.of(SOURCES + "CaseTables.php"), caseTables(model));
         sources.put(Path.of(SOURCES + "NormalizationTables.php"), normalizationTables(model));
+        sources.put(Path.of(SOURCES + "CompatibilityTables.php"), compatibilityTables(model));
+        sources.put(Path.of(SOURCES + "CompositionTables.php"), compositionTables(model));
+        sources.put(Path.of(SOURCES + "LowerCaseTables.php"), lowerCaseTables(model));
+        sources.put(Path.of(SOURCES + "UpperCaseTables.php"), upperCaseTables(model));
         sources.put(Path.of(SOURCES + "WhiteSpaceTables.php"), whiteSpaceTables(model));
         sources.put(Path.of(SOURCES + "PatternAlphabetTables.php"), patternAlphabetTables(model));
         return sources;
     }
 
-    // CaseTables.php
+    // Case: LowerCaseTables.php and UpperCaseTables.php
 
-    private static String caseTables(UcdModel model) {
+    private static String lowerCaseTables(UcdModel model) {
         UcdModel.Casing casing = model.casing();
-        StringBuilder out = header(model, "CaseTables", "The default case conversion's tables: the untailored"
-                        + " full mapping and the properties Final_Sigma is stated over",
+        StringBuilder out = header(model, "LowerCaseTables", "The default lowercase conversion's tables: the"
+                        + " untailored full mapping and the properties Final_Sigma is stated over",
                 List.of("UnicodeData.txt", "SpecialCasing.txt", "DerivedCoreProperties.txt"));
         mapping(out, "LOWER", "The full lowercase mapping; a character not here maps to itself", casing.lower());
-        mapping(out, "UPPER", "The full uppercase mapping; a character not here maps to itself", casing.upper());
         mapping(out, "FINAL_SIGMA",
                 "The lowercase mapping that replaces LOWER's at the end of a cased run (Final_Sigma)",
                 casing.finalSigma());
@@ -69,22 +71,25 @@ final class PhpEmitter {
         return footer(out);
     }
 
-    // NormalizationTables.php
+    private static String upperCaseTables(UcdModel model) {
+        StringBuilder out = header(model, "UpperCaseTables",
+                "The default uppercase conversion's table: the untailored full mapping",
+                List.of("UnicodeData.txt", "SpecialCasing.txt"));
+        mapping(out, "UPPER", "The full uppercase mapping; a character not here maps to itself",
+                model.casing().upper());
+        return footer(out);
+    }
+
+    // Normalization: NormalizationTables.php, CompatibilityTables.php and CompositionTables.php
 
     private static String normalizationTables(UcdModel model) {
         UcdModel.Decomposition decomposition = model.decomposition();
         StringBuilder out = header(model, "NormalizationTables",
-                "Normalization's tables: the decompositions, the combining classes and the primary"
-                        + " composites, whose exclusions were checked against DerivedNormalizationProps.txt's"
-                        + " Full_Composition_Exclusion when they were generated",
-                List.of("UnicodeData.txt", "CompositionExclusions.txt", "DerivedNormalizationProps.txt"));
+                "What every normalization form reads: the canonical decompositions, the combining classes and"
+                        + " the stable starters",
+                List.of("UnicodeData.txt", "DerivedNormalizationProps.txt"));
         mapping(out, "CANONICAL", "The one-step canonical decomposition; a character not here has none",
                 decomposition.canonical());
-        mapping(out, "COMPATIBILITY",
-                "The one-step compatibility decomposition, its <tag> dropped; a character is in this, in"
-                        + " CANONICAL or in neither",
-                decomposition.compatibility());
-
         out.append("    /**\n");
         out.append("     * The non-zero canonical combining classes, by character; every other character's is 0.\n");
         out.append("     *\n");
@@ -94,22 +99,6 @@ final class PhpEmitter {
         decomposition.combiningClass().entries().forEach((cp, value) ->
                 out.append("        ").append(character(cp)).append(" => ").append(value).append(",\n"));
         out.append("    ];\n\n");
-
-        // Held as generated rather than worked out as text is normalized: PHP keeps nothing it works
-        // out from one request to the next, and opcache keeps a constant.
-        UcdModel.CodePointMapping compositions = model.normalizationDerived().compositions();
-        out.append("    /**\n");
-        out.append("     * The primary composites, by the two characters each is canonically composed from, written\n");
-        out.append("     * one after the other; Hangul's, which are arithmetic, are not here (")
-                .append(compositions.entries().size()).append(" composites).\n");
-        out.append("     *\n");
-        out.append("     * @var array<string, string>\n");
-        out.append("     */\n");
-        out.append("    public const COMPOSITIONS = [\n");
-        compositions.entries().forEach((cp, pair) -> out.append("        \"").append(escape(pair[0]))
-                .append(escape(pair[1])).append("\" => ").append(character(cp)).append(",\n"));
-        out.append("    ];\n\n");
-
         PagedTable stable = model.byCodePoint().stableStarters();
         if (stable.pages().size() > 0x100 || stable.greatest() > 0xFF) {
             throw new IllegalStateException("STABLE does not fit the strings it is written as");
@@ -139,7 +128,40 @@ final class PhpEmitter {
             out.append("    public const ").append(form.toUpperCase(Locale.ROOT)).append("_TRIVIAL_LIMIT = ")
                     .append(code(limit)).append(";\n\n");
         }
+        return footer(out);
+    }
 
+    private static String compatibilityTables(UcdModel model) {
+        StringBuilder out = header(model, "CompatibilityTables",
+                "What the compatibility forms read besides NormalizationTables: the compatibility decompositions",
+                List.of("UnicodeData.txt"));
+        mapping(out, "COMPATIBILITY",
+                "The one-step compatibility decomposition, its <tag> dropped; a character is in this, in"
+                        + " CANONICAL or in neither",
+                model.decomposition().compatibility());
+        return footer(out);
+    }
+
+    private static String compositionTables(UcdModel model) {
+        StringBuilder out = header(model, "CompositionTables",
+                "What the composing forms read besides NormalizationTables: the primary composites, whose"
+                        + " exclusions were checked against DerivedNormalizationProps.txt's"
+                        + " Full_Composition_Exclusion when they were generated",
+                List.of("UnicodeData.txt", "CompositionExclusions.txt", "DerivedNormalizationProps.txt"));
+        UcdModel.CodePointMapping compositions = model.normalizationDerived().compositions();
+        out.append("    /**\n");
+        out.append("     * The primary composites, by the two characters each is canonically composed from, written\n");
+        out.append("     * one after the other; Hangul's, which are arithmetic, are not here (")
+                .append(compositions.entries().size()).append(" composites).\n");
+        out.append("     *\n");
+        out.append("     * @var array<string, string>\n");
+        out.append("     */\n");
+        out.append("    public const COMPOSITIONS = [\n");
+        compositions.entries().forEach((cp, pair) -> out.append("        \"").append(escape(pair[0]))
+                .append(escape(pair[1])).append("\" => ").append(character(cp)).append(",\n"));
+        out.append("    ];\n\n");
+        // Held as generated rather than worked out as text is normalized: PHP keeps nothing it works
+        // out from one request to the next, and opcache keeps a constant.
         out.append("    /**\n");
         out.append("     * The most marks one starter composes with, one after another, in a composing form: of the\n");
         out.append("     * marks held after a starter, no more than this many are gone from the answer.\n");

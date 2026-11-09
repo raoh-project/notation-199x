@@ -9,7 +9,7 @@ use Raoh\Notation199x\NormalizationForm;
 /**
  * What the normalization asks of a form: whether it follows the compatibility mappings as well as
  * the canonical ones, whether it composes, the trivial limit below which every code point is a
- * stable starter of the form, and the form's bit of NormalizationTables::STABLE_PAGES.
+ * stable starter of the form, and the form's bit of NormalizationTables::STABLE.
  *
  * @internal
  */

@@ -1,0 +1,37 @@
+# A program that links the crate and asks for one thing of it, so that what a statically linked
+# program carries of the crate's tables is read off the program. check.sh builds it once for each
+# feature and holds what it carries to what the feature asks for.
+[package]
+name = "linked"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# A library, which check.sh builds for WebAssembly, where bytes are what a program is held to, and
+# the program of `main.rs`, whose symbols it reads.
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+notation199x = { path = ".." }
+
+# What one program asks of the crate; with no feature it asks nothing.
+[features]
+nfc = []
+nfd = []
+nfkc = []
+nfkd = []
+lowercase = []
+uppercase = []
+# The form chosen by a value, as `normalize` takes it.
+form = []
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+# check.sh reads the symbols and the size.
+strip = "none"
+
+# This is not a member of any workspace the crate is in.
+[workspace]

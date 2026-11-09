@@ -7,7 +7,7 @@ namespace Raoh\Notation199x\Tests;
 use PHPUnit\Framework\TestCase;
 use Raoh\Notation199x\Tests\Support\Repository;
 use Raoh\Notation199x\Internal\Utf8;
-use Raoh\Notation199x\Internal\CaseTables;
+use Raoh\Notation199x\Internal\LowerCaseTables;
 use Raoh\Notation199x\CaseConversion;
 use Raoh\Notation199x\ScalarValues;
 use Raoh\Notation199x\TemporalAnswer;
@@ -129,9 +129,9 @@ final class TextTest extends TestCase
         }
         $wrong = [];
         for ($cp = 0; $cp <= 0x10FFFF; $cp++) {
-            $context = ord(CaseTables::CONTEXT_PAGES[ord(CaseTables::CONTEXT_BLOCKS[$cp >> 8]) << 8 | $cp & 0xFF]);
+            $context = ord(LowerCaseTables::CONTEXT_PAGES[ord(LowerCaseTables::CONTEXT_BLOCKS[$cp >> 8]) << 8 | $cp & 0xFF]);
             $stated = (isset($cased[$cp]) ? 1 : 0) | (isset($ignorable[$cp]) ? 2 : 0)
-                | ($cp >= 0xD800 && $cp <= 0xDFFF || !isset(CaseTables::FINAL_SIGMA[Utf8::encode($cp)]) ? 0 : 4);
+                | ($cp >= 0xD800 && $cp <= 0xDFFF || !isset(LowerCaseTables::FINAL_SIGMA[Utf8::encode($cp)]) ? 0 : 4);
             if ($context !== $stated && count($wrong) < 20) {
                 $wrong[] = sprintf('U+%04X is %d, not %d', $cp, $context, $stated);
             }

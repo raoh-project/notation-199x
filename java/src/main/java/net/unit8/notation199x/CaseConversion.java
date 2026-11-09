@@ -135,8 +135,8 @@ public final class CaseConversion {
      *
      * <p>Text that maps to itself is answered with itself. Otherwise what maps to itself is copied a
      * run at a time, from {@code kept}, and the answer is made only once a code point that changes
-     * is met. Whether one does is read off {@link CaseTables#LOWER_PAGES} or
-     * {@link CaseTables#UPPER_PAGES}, which answer where its mapping is as well.
+     * is met. Whether one does is read off {@link CaseTables.Lower#POSITION_PAGES} or
+     * {@link CaseTables.Upper#POSITION_PAGES}, which answer where its mapping is as well.
      *
      * <p>With a checkpoint the answer is written into room that grows with it, and is made a string
      * only once the checkpoint has been asked again ({@link Checkpoints}).
@@ -147,13 +147,13 @@ public final class CaseConversion {
         if (longest < 0) {
             return null;
         }
-        byte[] blocks = lower ? CaseTables.LOWER_BLOCKS : CaseTables.UPPER_BLOCKS;
-        char[] pages = lower ? CaseTables.LOWER_PAGES : CaseTables.UPPER_PAGES;
-        int[][] mappings = (lower ? CaseTables.LOWER : CaseTables.UPPER).mapped();
+        byte[] blocks = lower ? CaseTables.Lower.POSITION_BLOCKS : CaseTables.Upper.POSITION_BLOCKS;
+        char[] pages = lower ? CaseTables.Lower.POSITION_PAGES : CaseTables.Upper.POSITION_PAGES;
+        int[][] mappings = (lower ? CaseTables.Lower.MAPPING : CaseTables.Upper.MAPPING).mapped();
         StringBuilder out = null;
         int kept = 0;
         long written = 0;
-        byte[] ascii = lower ? LOWER_ASCII : UPPER_ASCII;
+        byte[] ascii = lower ? Lower.ASCII : Upper.ASCII;
         for (int at = 0; at < s.length(); ) {
             long scanned = sameUpTo(s, at, longest - written, ascii, blocks, pages, checkpoint);
             int same = Scan.end(scanned);
@@ -208,7 +208,7 @@ public final class CaseConversion {
                         return null;
                     }
                     if (isFinal) {
-                        mapped = Objects.requireNonNull(lookup(CaseTables.FINAL_SIGMA, cp),
+                        mapped = Objects.requireNonNull(lookup(CaseTables.Lower.FINAL_SIGMA, cp),
                                 "CONTEXT_PAGES says FINAL_SIGMA names it");
                     }
                 }
@@ -269,15 +269,19 @@ public final class CaseConversion {
         return Scan.of(at, pairs);
     }
 
-    /** For the lowercase mapping, what each ASCII character maps to where the mapping makes it one
-     *  ASCII character and no {@code Final_Sigma} entry names it, and -1 where the tables are asked.
-     *  Read off the tables, so that most text is mapped a unit at a time without a rule of its own
-     *  about ASCII. */
-    private static final byte[] LOWER_ASCII = ascii(CaseTables.LOWER, CaseTables.FINAL_SIGMA);
+    /** Lowercasing's {@link #ascii}, made when the first lowercasing is asked. */
+    private static final class Lower {
+        static final byte[] ASCII = ascii(CaseTables.Lower.MAPPING, CaseTables.Lower.FINAL_SIGMA);
+    }
 
-    /** {@link #LOWER_ASCII} for the uppercase mapping. */
-    private static final byte[] UPPER_ASCII = ascii(CaseTables.UPPER, null);
+    /** Uppercasing's {@link #ascii}, made when the first uppercasing is asked. */
+    private static final class Upper {
+        static final byte[] ASCII = ascii(CaseTables.Upper.MAPPING, null);
+    }
 
+    /** For a mapping, what each ASCII character maps to where the mapping makes it one ASCII
+     *  character and no {@code Final_Sigma} entry names it, and -1 where the tables are asked. Read off
+     *  the tables, so that most text is mapped a unit at a time without a rule of its own about ASCII. */
     private static byte[] ascii(CaseTables.Mapping mapping, CaseTables.@Nullable Mapping finalSigma) {
         byte[] ascii = new byte[0x80];
         for (int c = 0; c < 0x80; c++) {
@@ -335,14 +339,15 @@ public final class CaseConversion {
         return index >= 0 ? table.mapped()[index] : null;
     }
 
-    // What CaseTables.CONTEXT_PAGES holds of a code point, a bit each.
+    // What CaseTables.Lower.CONTEXT_PAGES holds of a code point, a bit each.
     static final int CASED = 1;
     static final int CASE_IGNORABLE = 2;
     static final int FINAL_SIGMA_NAMED = 4;
 
-    /** Whether {@link CaseTables#CONTEXT_PAGES} holds {@code bit} of {@code cp}. */
+    /** Whether {@link CaseTables.Lower#CONTEXT_PAGES} holds {@code bit} of {@code cp}. */
     static boolean hasContext(int cp, int bit) {
-        return (CaseTables.CONTEXT_PAGES[(CaseTables.CONTEXT_BLOCKS[cp >>> 8] & 0xFF) << 8 | cp & 0xFF] & bit) != 0;
+        return (CaseTables.Lower.CONTEXT_PAGES[(CaseTables.Lower.CONTEXT_BLOCKS[cp >>> 8] & 0xFF) << 8 | cp & 0xFF] & bit)
+                != 0;
     }
 
     private static boolean isCased(int cp) {

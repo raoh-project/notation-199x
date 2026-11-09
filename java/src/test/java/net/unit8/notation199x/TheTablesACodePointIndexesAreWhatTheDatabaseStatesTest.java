@@ -75,9 +75,9 @@ class TheTablesACodePointIndexesAreWhatTheDatabaseStatesTest {
     void aCaseTableAnswersWhereTheMappingHoldsWhatChanges() {
         List<String> wrong = new ArrayList<>();
         for (boolean lower : new boolean[] {true, false}) {
-            CaseTables.Mapping mapping = lower ? CaseTables.LOWER : CaseTables.UPPER;
-            byte[] blocks = lower ? CaseTables.LOWER_BLOCKS : CaseTables.UPPER_BLOCKS;
-            char[] pages = lower ? CaseTables.LOWER_PAGES : CaseTables.UPPER_PAGES;
+            CaseTables.Mapping mapping = lower ? CaseTables.Lower.MAPPING : CaseTables.Upper.MAPPING;
+            byte[] blocks = lower ? CaseTables.Lower.POSITION_BLOCKS : CaseTables.Upper.POSITION_BLOCKS;
+            char[] pages = lower ? CaseTables.Lower.POSITION_PAGES : CaseTables.Upper.POSITION_PAGES;
             for (int cp = 0; cp <= Character.MAX_CODE_POINT; cp++) {
                 int index = Arrays.binarySearch(mapping.codePoints(), cp);
                 boolean changes = index >= 0 && !Arrays.equals(mapping.mapped()[index], new int[] {cp});
@@ -87,8 +87,9 @@ class TheTablesACodePointIndexesAreWhatTheDatabaseStatesTest {
                 }
             }
         }
-        for (int cp : CaseTables.FINAL_SIGMA.codePoints()) {
-            if (CaseTables.LOWER_PAGES[(CaseTables.LOWER_BLOCKS[cp >>> 8] & 0xFF) << 8 | cp & 0xFF] == 0) {
+        for (int cp : CaseTables.Lower.FINAL_SIGMA.codePoints()) {
+            if (CaseTables.Lower.POSITION_PAGES[
+                    (CaseTables.Lower.POSITION_BLOCKS[cp >>> 8] & 0xFF) << 8 | cp & 0xFF] == 0) {
                 wrong.add("final sigma " + Integer.toHexString(cp));
             }
         }
@@ -101,13 +102,13 @@ class TheTablesACodePointIndexesAreWhatTheDatabaseStatesTest {
         List<String> wrong = new ArrayList<>();
         for (int cp = 0; cp <= Character.MAX_CODE_POINT; cp++) {
             int canonical = Arrays.binarySearch(NormalizationTables.DECOMP.codePoints(), cp);
-            int compatibility = Arrays.binarySearch(NormalizationTables.COMPAT.codePoints(), cp);
+            int compatibility = Arrays.binarySearch(NormalizationTables.Compatibility.COMPAT.codePoints(), cp);
             int[] searched = canonical >= 0 ? NormalizationTables.DECOMP.mapped()[canonical] : null;
             if (!Arrays.equals(Normalization.decomposition(cp, false), searched)) {
                 wrong.add(Integer.toHexString(cp));
             }
             if (searched == null && compatibility >= 0) {
-                searched = NormalizationTables.COMPAT.mapped()[compatibility];
+                searched = NormalizationTables.Compatibility.COMPAT.mapped()[compatibility];
             }
             if (!Arrays.equals(Normalization.decomposition(cp, true), searched)) {
                 wrong.add(Integer.toHexString(cp) + " with compatibility");
@@ -134,7 +135,7 @@ class TheTablesACodePointIndexesAreWhatTheDatabaseStatesTest {
         Set<Integer> cased = property("DerivedCoreProperties.txt", "Cased");
         Set<Integer> ignorable = property("DerivedCoreProperties.txt", "Case_Ignorable");
         Set<Integer> finalSigma = new HashSet<>();
-        for (int cp : CaseTables.FINAL_SIGMA.codePoints()) {
+        for (int cp : CaseTables.Lower.FINAL_SIGMA.codePoints()) {
             finalSigma.add(cp);
         }
         List<String> wrong = new ArrayList<>();
@@ -181,16 +182,11 @@ class TheTablesACodePointIndexesAreWhatTheDatabaseStatesTest {
                 wrong.add(Integer.toHexString(first) + " " + Integer.toHexString(second));
             }
         }
-        int composing = 0;
-        for (char at : NormalizationTables.COMPOSITION_CELLS) {
-            if (at != 0) {
-                composing++;
-            }
-        }
+        int composing = NormalizationTables.Composition.PAIRS.length;
         assertEquals(stated, composing, "pairs the table composes");
         for (int cp = 0; cp <= Character.MAX_CODE_POINT; cp++) {
-            boolean second = NormalizationTables.COMPOSITION_SECOND_PAGES[
-                    (NormalizationTables.COMPOSITION_SECOND_BLOCKS[cp >>> 8] & 0xFF) << 8 | cp & 0xFF] != 0;
+            boolean second = NormalizationTables.Composition.SECOND_PAGES[
+                    (NormalizationTables.Composition.SECOND_BLOCKS[cp >>> 8] & 0xFF) << 8 | cp & 0xFF] != 0;
             if (second != seconds.contains(cp)) {
                 wrong.add("second " + Integer.toHexString(cp));
             }

@@ -101,6 +101,10 @@ jobs:
         run: |
           rustup toolchain install "$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)" --profile minimal
           cargo +"$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)" build
+      # A program that links the crate carries the tables of the forms it asks for and no others.
+      - name: Check what a linked program carries of the tables
+        working-directory: rust
+        run: sh linked/check.sh
       # A checkout holds ucd/, suite/ and image/, and a test that does not find them fails rather than
       # skips.
       - name: Test

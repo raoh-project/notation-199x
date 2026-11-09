@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Raoh\Notation199x;
 
-use Raoh\Notation199x\Internal\CaseTables;
+use Raoh\Notation199x\Internal\LowerCaseTables;
+use Raoh\Notation199x\Internal\UpperCaseTables;
 use Raoh\Notation199x\Internal\Utf8;
 
 /**
@@ -20,7 +21,7 @@ use Raoh\Notation199x\Internal\Utf8;
  */
 final class CaseConversion
 {
-    /** What CaseTables::CONTEXT_PAGES holds of a code point, a bit each. */
+    /** What LowerCaseTables::CONTEXT_PAGES holds of a code point, a bit each. */
     private const CASED = 1;
     private const CASE_IGNORABLE = 2;
 
@@ -108,7 +109,7 @@ final class CaseConversion
      */
     private static function map(string $s, bool $lower, int $longest): ?string
     {
-        $table = $lower ? CaseTables::LOWER : CaseTables::UPPER;
+        $table = $lower ? LowerCaseTables::LOWER : UpperCaseTables::UPPER;
         [$stops, $changing, $asciiFrom, $asciiTo] = self::stops($lower);
         $length = strlen($s);
         $out = '';
@@ -153,7 +154,7 @@ final class CaseConversion
                 $character = substr($s, $at, $width);
                 $after = $at + $width;
                 $to = null;
-                if ($lower && isset(CaseTables::FINAL_SIGMA[$character])) {
+                if ($lower && isset(LowerCaseTables::FINAL_SIGMA[$character])) {
                     // The sigma is at least one scalar value of the answer, as every character is,
                     // and each Case_Ignorable one after it is another.
                     if ($longest >= 0 && $written >= $longest) {
@@ -164,7 +165,7 @@ final class CaseConversion
                         return null;
                     }
                     if ($final) {
-                        $to = CaseTables::FINAL_SIGMA[$character];
+                        $to = LowerCaseTables::FINAL_SIGMA[$character];
                     }
                 }
                 $to ??= $table[$character] ?? null;
@@ -204,12 +205,12 @@ final class CaseConversion
             // works this out once, and the 128 lookups cost a few microseconds.
             for ($byte = 0; $byte < 0x80; $byte++) {
                 $character = chr($byte);
-                $mapped = ($lower ? CaseTables::LOWER : CaseTables::UPPER)[$character] ?? null;
-                if ($mapped !== null || $lower && isset(CaseTables::FINAL_SIGMA[$character])) {
+                $mapped = ($lower ? LowerCaseTables::LOWER : UpperCaseTables::UPPER)[$character] ?? null;
+                if ($mapped !== null || $lower && isset(LowerCaseTables::FINAL_SIGMA[$character])) {
                     $stops .= $character;
                 }
                 if ($mapped !== null && strlen($mapped) === 1 && ord($mapped) < 0x80
-                    && !($lower && isset(CaseTables::FINAL_SIGMA[$character]))) {
+                    && !($lower && isset(LowerCaseTables::FINAL_SIGMA[$character]))) {
                     $changing .= $character;
                     $to .= $mapped;
                 }
@@ -263,10 +264,10 @@ final class CaseConversion
     }
 
     /**
-     * Whether CaseTables::CONTEXT_PAGES holds $bit of $cp.
+     * Whether LowerCaseTables::CONTEXT_PAGES holds $bit of $cp.
      */
     private static function has(int $cp, int $bit): bool
     {
-        return (ord(CaseTables::CONTEXT_PAGES[ord(CaseTables::CONTEXT_BLOCKS[$cp >> 8]) << 8 | $cp & 0xFF]) & $bit) !== 0;
+        return (ord(LowerCaseTables::CONTEXT_PAGES[ord(LowerCaseTables::CONTEXT_BLOCKS[$cp >> 8]) << 8 | $cp & 0xFF]) & $bit) !== 0;
     }
 }
