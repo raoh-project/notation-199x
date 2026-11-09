@@ -557,7 +557,7 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
     }
 
     /** {@link ByCodePoint#composing}: the first and the second members numbered in order of code
-     *  point, and each pair's cell the composite's place among the composites. */
+     *  point, and the pairs that compose a row at a time, each with its composite. */
     private static Composing composing(CodePointMapping compositions) {
         SortedSet<Integer> firsts = new TreeSet<>();
         SortedSet<Integer> seconds = new TreeSet<>();
