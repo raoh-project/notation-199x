@@ -1,0 +1,28 @@
+[package]
+name = "notation199x-bench"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Instruction counts and time of the notation199x crate, which CI compares between two commits"
+
+# The crate under measurement is the one in the directory above, and nothing here is part of it. This
+# directory is the instrument and the crate above is what it measures, so that the instrument of a
+# pull request can measure the commit it branched from: compare.sh puts this directory beside that
+# commit's crate and builds both with it.
+[workspace]
+
+[dependencies]
+notation199x = { path = ".." }
+# The runner CI installs is of this version, which the harness checks.
+gungraun = "=0.20.0"
+
+[[bench]]
+name = "unicode"
+harness = false
+
+[[bench]]
+name = "wall"
+harness = false
+
+[profile.bench]
+debug = true

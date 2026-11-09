@@ -9,6 +9,10 @@ file of the same numbers.
 It exits with 1 where the comparison cannot be made: a case without a baseline, or a case that one
 of the counts and the times has and another has not, or a summary of a version it does not know.
 A case over the limit is in the report and is not a failure, so far.
+
+With --self-check the two are the same commit, which is what is compared where there is no commit
+before to compare with. The count of instructions of a program and an input does not vary, so a
+difference is a failure: the comparison did not measure what it says it does.
 """
 
 import argparse
@@ -80,6 +84,7 @@ def main():
     parser.add_argument("--limit", type=float, required=True, help="percent of Ir that is flagged")
     parser.add_argument("--base", default="base")
     parser.add_argument("--head", default="head")
+    parser.add_argument("--self-check", action="store_true", help="the two are one commit")
     parser.add_argument("--out-md", required=True)
     parser.add_argument("--out-json", required=True)
     args = parser.parse_args()
@@ -90,6 +95,11 @@ def main():
     for case, row in wall_head.items():
         if (row["scalars"], row["bytes"]) != (wall_base[case]["scalars"], wall_base[case]["bytes"]):
             raise Incomparable(f"{case} was timed on a different input in the two commits")
+
+    if args.self_check:
+        differing = sorted(case for case, (old, new) in counts.items() if old != new)
+        if differing:
+            raise Incomparable(f"one commit gave two counts of instructions for {differing}")
 
     rows, flagged = [], []
     for case in sorted(counts):
@@ -118,6 +128,16 @@ def main():
     lines = [
         f"### Rust: instructions and time, `{args.base}` to `{args.head}`",
         "",
+    ]
+    if args.self_check:
+        lines += [
+            "There is no commit before this one that the benchmarks can be built on, which a commit "
+            "that says so allows, so this commit is compared with itself: the counts are those of "
+            "two runs of one program, and they are the same in every case. That shows the "
+            "measuring works; it shows nothing of a change of speed.",
+            "",
+        ]
+    lines += [
         f"Ir is the count of instructions under Callgrind, the same for the same program and the same input. "
         f"The time is the median of a run on this runner, which a shared machine and the layout of the "
         f"program move, and it is not judged. A case is flagged where Ir grows by more than {args.limit:g}%.",
