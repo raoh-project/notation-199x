@@ -7,6 +7,11 @@ version = "0.0.0"
 edition = "2024"
 publish = false
 
+# A library, which check.sh builds for WebAssembly, where bytes are what a program is held to, and
+# the program of `main.rs`, whose symbols it reads.
+[lib]
+crate-type = ["lib", "cdylib"]
+
 [dependencies]
 notation199x = { path = ".." }
 
@@ -25,7 +30,7 @@ form = []
 opt-level = "s"
 lto = true
 codegen-units = 1
-# check.sh reads the symbols.
+# check.sh reads the symbols and the size.
 strip = "none"
 
 # This is not a member of any workspace the crate is in.
