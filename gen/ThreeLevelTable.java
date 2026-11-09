@@ -42,14 +42,18 @@ record ThreeLevelTable(int blockShift, int pageShift, int[] top, int[] middle, i
         ThreeLevelTable best = null;
         long fewest = Long.MAX_VALUE;
         // 0x110000 is 17 * 2^16, so every block of up to 2^16 code points is whole.
-        for (int blockShift = 2; blockShift <= 16; blockShift++) {
-            for (int pageShift = 1; pageShift < blockShift; pageShift++) {
-                if (blockShift - pageShift > 12) {
+        for (int pageShift = 1; pageShift < 16; pageShift++) {
+            // What the pages are depends on the size of a page alone, not on the size of a block.
+            Pages pages = pages(values, pageShift);
+            for (int blockShift = pageShift + 1; blockShift <= Math.min(16, pageShift + 12); blockShift++) {
+                ThreeLevelTable candidate = layout(pages, blockShift);
+                long bytes = candidate.bytes(valueBytes);
+                if (bytes < 0) {
                     continue;
                 }
-                ThreeLevelTable candidate = layout(values, blockShift, pageShift);
-                long bytes = candidate.bytes(valueBytes);
-                if (bytes >= 0 && (bytes < fewest || bytes == fewest && pageShift > best.pageShift)) {
+                // The fewest bytes; of those, the larger page; of those, the smaller block.
+                if (bytes < fewest || bytes == fewest && (pageShift > best.pageShift
+                        || pageShift == best.pageShift && blockShift < best.blockShift)) {
                     best = candidate;
                     fewest = bytes;
                 }
@@ -66,38 +70,56 @@ record ThreeLevelTable(int blockShift, int pageShift, int[] top, int[] middle, i
         return best;
     }
 
-    private static ThreeLevelTable layout(int[] values, int blockShift, int pageShift) {
-        int pageSize = 1 << pageShift;
-        int runLength = 1 << (blockShift - pageShift);
-        Map<List<Integer>, Integer> pageNumbers = new HashMap<>();
-        List<int[]> pages = new ArrayList<>();
-        int[] pageOf = new int[CODE_POINTS >>> pageShift];
-        for (int page = 0; page < pageOf.length; page++) {
-            int[] contents = Arrays.copyOfRange(values, page * pageSize, (page + 1) * pageSize);
-            List<Integer> key = Arrays.stream(contents).boxed().toList();
-            Integer number = pageNumbers.get(key);
-            if (number == null) {
-                number = pages.size();
-                pageNumbers.put(key, number);
-                pages.add(contents);
-            }
-            pageOf[page] = number;
+    /** The pages of a size, each held once, and the number of the page of each place in the code space. */
+    private record Pages(int shift, int[] leaf, int[] numbers) {}
+
+    /** {@code values} to compare by what they hold. */
+    private record Words(int[] words) {
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Words that && Arrays.equals(words, that.words);
         }
-        Map<List<Integer>, Integer> runNumbers = new HashMap<>();
+
+        @Override
+        public int hashCode() {
+            return Arrays.hashCode(words);
+        }
+    }
+
+    /** What the places of {@code 1 << shift} code points hold, each different one held once, and where. */
+    private static Pages pages(int[] values, int shift) {
+        int size = 1 << shift;
+        Map<Words, Integer> numbered = new HashMap<>();
+        int[] numbers = new int[CODE_POINTS >>> shift];
+        List<int[]> distinct = new ArrayList<>();
+        for (int place = 0; place < numbers.length; place++) {
+            int[] page = Arrays.copyOfRange(values, place * size, (place + 1) * size);
+            Integer number = numbered.putIfAbsent(new Words(page), distinct.size());
+            if (number == null) {
+                number = distinct.size();
+                distinct.add(page);
+            }
+            numbers[place] = number;
+        }
+        return new Pages(shift, join(distinct, size), numbers);
+    }
+
+    /** The runs of page numbers of {@code 1 << blockShift} code points, each different one held once. */
+    private static ThreeLevelTable layout(Pages pages, int blockShift) {
+        int runLength = 1 << (blockShift - pages.shift());
+        Map<Words, Integer> numbered = new HashMap<>();
         List<int[]> runs = new ArrayList<>();
         int[] top = new int[CODE_POINTS >>> blockShift];
         for (int block = 0; block < top.length; block++) {
-            int[] run = Arrays.copyOfRange(pageOf, block * runLength, (block + 1) * runLength);
-            List<Integer> key = Arrays.stream(run).boxed().toList();
-            Integer number = runNumbers.get(key);
+            int[] run = Arrays.copyOfRange(pages.numbers(), block * runLength, (block + 1) * runLength);
+            Integer number = numbered.putIfAbsent(new Words(run), runs.size());
             if (number == null) {
                 number = runs.size();
-                runNumbers.put(key, number);
                 runs.add(run);
             }
             top[block] = number;
         }
-        return new ThreeLevelTable(blockShift, pageShift, top, join(runs, runLength), join(pages, pageSize));
+        return new ThreeLevelTable(blockShift, pages.shift(), top, join(runs, runLength), pages.leaf());
     }
 
     private static int[] join(List<int[]> parts, int length) {
