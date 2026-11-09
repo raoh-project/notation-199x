@@ -8,9 +8,11 @@ import java.util.Map;
  * Writes a {@link UcdModel} as the TypeScript sources {@code ts/} reads.
  *
  * <p>What is decided here is how TypeScript holds the data: which file each table is in, the comment
- * it carries, and the constant each is written as. Each rule's tables are a module of their own that
- * does nothing but declare them, so a bundler leaves out the tables of a rule a program does not
- * call. A table of a value for each code point is written as two strings whose code units are the
+ * it carries, and the constant each is written as. Each group of tables a program may need without
+ * the others is a module of its own that does nothing but declare them: the decompositions and
+ * combining classes, the compatibility mappings, the compositions, the lowercase tables and the
+ * uppercase tables, and so is each other rule's. A bundler leaves out the tables of a group nothing
+ * it keeps reads. A table of a value for each code point is written as two strings whose code units are the
  * values, {@code <NAME>_BLOCKS} and {@code <NAME>_PAGES}, read with {@code charCodeAt}: a string
  * literal is laid out by the engine as it parses it and decoded by nothing at run time, where an
  * array literal of numbers would be four times the source and a typed array would be built by code
@@ -32,8 +34,11 @@ final class TsEmitter {
      */
     static Map<Path, String> render(UcdModel model) {
         Map<Path, String> sources = new LinkedHashMap<>();
-        sources.put(Path.of(SOURCES + "case_tables.ts"), caseTables(model));
+        sources.put(Path.of(SOURCES + "case_lower_tables.ts"), lowerTables(model));
+        sources.put(Path.of(SOURCES + "case_upper_tables.ts"), upperTables(model));
         sources.put(Path.of(SOURCES + "normalization_tables.ts"), normalizationTables(model));
+        sources.put(Path.of(SOURCES + "normalization_compatibility_tables.ts"), compatibilityTables(model));
+        sources.put(Path.of(SOURCES + "normalization_composition_tables.ts"), compositionTables(model));
         sources.put(Path.of(SOURCES + "white_space_tables.ts"), whiteSpaceTables(model));
         sources.put(Path.of(SOURCES + "pattern_alphabet_tables.ts"), patternAlphabetTables(model));
         // Each table is followed by a blank line, which is not wanted at the end of a file.
@@ -41,15 +46,14 @@ final class TsEmitter {
         return sources;
     }
 
-    // case_tables.ts
+    // case_lower_tables.ts and case_upper_tables.ts
 
-    private static String caseTables(UcdModel model) {
+    private static String lowerTables(UcdModel model) {
         UcdModel.Casing casing = model.casing();
-        StringBuilder out = header(model, "The default case conversion's tables: the untailored full mapping and"
+        StringBuilder out = header(model, "The default lowercase conversion's tables: the untailored full mapping and"
                         + " the properties Final_Sigma is stated over",
                 List.of("UnicodeData.txt", "SpecialCasing.txt", "DerivedCoreProperties.txt"));
         mapping(out, "LOWER", "The full lowercase mapping; a code point not here maps to itself", casing.lower());
-        mapping(out, "UPPER", "The full uppercase mapping; a code point not here maps to itself", casing.upper());
         mapping(out, "FINAL_SIGMA",
                 "The lowercase mapping that replaces `LOWER`'s at the end of a cased run (`Final_Sigma`)",
                 casing.finalSigma());
@@ -59,24 +63,29 @@ final class TsEmitter {
         paged(out, "LOWER_POSITION", "For each code point, 0 where `LOWER` maps it to itself, and otherwise one"
                 + " more than where it is in `LOWER`. No code point `FINAL_SIGMA` names is 0.",
                 model.byCodePoint().lower());
+        return out.toString();
+    }
+
+    private static String upperTables(UcdModel model) {
+        StringBuilder out = header(model, "The default uppercase conversion's table: the untailored full mapping",
+                List.of("UnicodeData.txt", "SpecialCasing.txt"));
+        mapping(out, "UPPER", "The full uppercase mapping; a code point not here maps to itself",
+                model.casing().upper());
         paged(out, "UPPER_POSITION", "For each code point, 0 where `UPPER` maps it to itself, and otherwise one"
                 + " more than where it is in `UPPER`.", model.byCodePoint().upper());
         return out.toString();
     }
 
-    // normalization_tables.ts
+    // normalization_tables.ts, normalization_compatibility_tables.ts and normalization_composition_tables.ts
 
     private static String normalizationTables(UcdModel model) {
         UcdModel.Decomposition decomposition = model.decomposition();
         StringBuilder out = header(model,
-                "Normalization's tables: the decompositions, the combining classes and the script-specific"
-                        + " composition exclusions, checked against DerivedNormalizationProps.txt's"
-                        + " Full_Composition_Exclusion when they were generated",
+                "Normalization's tables that every form reads: the canonical decompositions, the combining"
+                        + " classes and the stable starters",
                 List.of("UnicodeData.txt", "CompositionExclusions.txt", "DerivedNormalizationProps.txt"));
         mapping(out, "CANONICAL", "The one-step canonical decomposition; a code point not here has none",
                 decomposition.canonical());
-        mapping(out, "COMPATIBILITY", "The one-step compatibility decomposition, its `<tag>` dropped; a code point"
-                + " is in this, in `CANONICAL` or in neither", decomposition.compatibility());
         paged(out, "DECOMPOSITION_POSITION", "For each code point, 0 where it has no decomposition, one more than"
                 + " where it is in `CANONICAL_TO` where it has a canonical one, and otherwise `CANONICAL_TO.length`"
                 + " and one more than where it is in `COMPATIBILITY_TO`.", model.byCodePoint().decomposition());
@@ -88,7 +97,35 @@ final class TsEmitter {
                 + " before it: no mark after it is put in order before it or composes with a starter before it,"
                 + " and it composes with nothing before it, since what does is Maybe, which the generator"
                 + " checks.", model.byCodePoint().stableStarters());
+        for (String form : UcdModel.FORMS) {
+            docComment(out, "The least code point that is not a starter or whose quick check for " + form
+                    + " is not Yes. Text made only of code points below it is its own normalization in that form.");
+            out.append("export const ").append(form.toUpperCase(Locale.ROOT)).append("_TRIVIAL_LIMIT = ")
+                    .append(code(decomposition.trivialLimit(form))).append(";\n\n");
+        }
+        docComment(out, "The most code points one code point decomposes into fully, in any form.");
+        out.append("export const LONGEST_DECOMPOSITION = ")
+                .append(model.normalizationDerived().longestDecomposition()).append(";\n\n");
+        docComment(out, "The most marks one starter composes with, one after another, in a composing form: of the"
+                + " marks held after a starter, no more than this many are gone from the answer.");
+        out.append("export const MOST_MARKS_COMPOSED = ")
+                .append(model.normalizationDerived().mostMarksComposed()).append(";\n\n");
+        return out.toString();
+    }
+
+    private static String compatibilityTables(UcdModel model) {
+        StringBuilder out = header(model, "Normalization's compatibility mappings, which only the two compatibility"
+                + " forms read", List.of("UnicodeData.txt"));
+        mapping(out, "COMPATIBILITY", "The one-step compatibility decomposition, its `<tag>` dropped; a code point"
+                + " is in this, in `CANONICAL` or in neither", model.decomposition().compatibility());
+        return out.toString();
+    }
+
+    private static String compositionTables(UcdModel model) {
         UcdModel.Composing composing = model.byCodePoint().composing();
+        StringBuilder out = header(model, "Normalization's primary compositions, which only the two composing forms"
+                + " read, checked against DerivedNormalizationProps.txt's Full_Composition_Exclusion when they were"
+                + " generated", List.of("UnicodeData.txt", "CompositionExclusions.txt", "DerivedNormalizationProps.txt"));
         paged(out, "COMPOSITION_FIRST", "For each code point, 0 where it is the first member of no primary"
                 + " composite, and otherwise one more than its row of `COMPOSITION_PAIRS`.", composing.firsts());
         paged(out, "COMPOSITION_SECOND", "For each code point, 0 where it is the second member of no primary"
@@ -104,19 +141,6 @@ final class TsEmitter {
         out.append("export const COMPOSITION_PAIRS: readonly number[] = [\n");
         numbers(out, composing.pairs());
         out.append("];\n\n");
-        for (String form : UcdModel.FORMS) {
-            docComment(out, "The least code point that is not a starter or whose quick check for " + form
-                    + " is not Yes. Text made only of code points below it is its own normalization in that form.");
-            out.append("export const ").append(form.toUpperCase(Locale.ROOT)).append("_TRIVIAL_LIMIT = ")
-                    .append(code(decomposition.trivialLimit(form))).append(";\n\n");
-        }
-        docComment(out, "The most code points one code point decomposes into fully, in any form.");
-        out.append("export const LONGEST_DECOMPOSITION = ")
-                .append(model.normalizationDerived().longestDecomposition()).append(";\n\n");
-        docComment(out, "The most marks one starter composes with, one after another, in a composing form: of the"
-                + " marks held after a starter, no more than this many are gone from the answer.");
-        out.append("export const MOST_MARKS_COMPOSED = ")
-                .append(model.normalizationDerived().mostMarksComposed()).append(";\n\n");
         return out.toString();
     }
 

@@ -4,13 +4,6 @@ import {
   CANONICAL_TO,
   COMBINING_CLASS_BLOCKS,
   COMBINING_CLASS_PAGES,
-  COMPATIBILITY_TO,
-  COMPOSITION_FIRST_BLOCKS,
-  COMPOSITION_FIRST_PAGES,
-  COMPOSITION_PAIRS,
-  COMPOSITION_ROWS,
-  COMPOSITION_SECOND_BLOCKS,
-  COMPOSITION_SECOND_PAGES,
   DECOMPOSITION_POSITION_BLOCKS,
   DECOMPOSITION_POSITION_PAGES,
   LONGEST_DECOMPOSITION,
@@ -22,6 +15,15 @@ import {
   STABLE_BLOCKS,
   STABLE_PAGES,
 } from "./normalization_tables.ts";
+import { COMPATIBILITY_TO } from "./normalization_compatibility_tables.ts";
+import {
+  COMPOSITION_FIRST_BLOCKS,
+  COMPOSITION_FIRST_PAGES,
+  COMPOSITION_PAIRS,
+  COMPOSITION_ROWS,
+  COMPOSITION_SECOND_BLOCKS,
+  COMPOSITION_SECOND_PAGES,
+} from "./normalization_composition_tables.ts";
 import { checkedBound, stop, valueAt, Written } from "./tables.ts";
 
 /** The four normalization forms. */
@@ -35,22 +37,41 @@ export type Form =
   /** Compatibility decomposition. */
   | "NFKD";
 
-/** What a form asks of the algorithm. */
+/**
+ * What a form asks of the algorithm. What it reads of the tables is the functions it holds, so that
+ * a program that asks for one form keeps what that form reads and no more: a bundler keeps a
+ * function only where some form it keeps holds it.
+ */
 interface FormFacts {
-  readonly compatibility: boolean;
-  readonly composes: boolean;
+  /** A code point's one-step decomposition, or `undefined` where the form names none. */
+  readonly decomposition: (cp: number) => string | undefined;
+  /** The primary composite of a starter and a code point, or -1; `undefined` in a form that does
+   *  not compose. */
+  readonly composite: ((starter: number, cp: number) => number) | undefined;
   /** Every code point below this is a stable starter of the form, known without asking a table. */
   readonly trivialLimit: number;
   /** The form's bit of STABLE. */
   readonly stableBit: number;
 }
 
-const FORMS: Readonly<Record<Form, FormFacts>> = {
-  NFC: { compatibility: false, composes: true, trivialLimit: NFC_TRIVIAL_LIMIT, stableBit: 1 },
-  NFD: { compatibility: false, composes: false, trivialLimit: NFD_TRIVIAL_LIMIT, stableBit: 2 },
-  NFKC: { compatibility: true, composes: true, trivialLimit: NFKC_TRIVIAL_LIMIT, stableBit: 4 },
-  NFKD: { compatibility: true, composes: false, trivialLimit: NFKD_TRIVIAL_LIMIT, stableBit: 8 },
+// One constant for each form, and a function for each of the two things the forms differ in, rather
+// than a flag read at run time: the tables of the compatibility mappings and of the compositions are
+// reached from the constants of the forms that read them and from no other.
+const NFC: FormFacts = {
+  decomposition: canonicalDecomposition, composite: primaryComposite, trivialLimit: NFC_TRIVIAL_LIMIT, stableBit: 1,
 };
+const NFD: FormFacts = {
+  decomposition: canonicalDecomposition, composite: undefined, trivialLimit: NFD_TRIVIAL_LIMIT, stableBit: 2,
+};
+const NFKC: FormFacts = {
+  decomposition: compatibilityDecomposition, composite: primaryComposite, trivialLimit: NFKC_TRIVIAL_LIMIT,
+  stableBit: 4,
+};
+const NFKD: FormFacts = {
+  decomposition: compatibilityDecomposition, composite: undefined, trivialLimit: NFKD_TRIVIAL_LIMIT, stableBit: 8,
+};
+
+const FORMS: Readonly<Record<Form, FormFacts>> = { NFC, NFD, NFKC, NFKD };
 
 /**
  * `text` in `form`.
@@ -88,6 +109,50 @@ export function normalize(form: Form, text: string): string {
  */
 export function normalizeWithin(form: Form, text: string, longest: number): string | undefined {
   return within(factsOf(form), text, checkedBound(longest));
+}
+
+/** {@link normalize} in NFC, for a program that asks for no other form: it keeps the tables of NFC
+ *  and not the compatibility mappings. */
+export function normalizeNFC(text: string): string {
+  return within(NFC, text, Number.POSITIVE_INFINITY)!;
+}
+
+/** {@link normalize} in NFD, for a program that asks for no other form: it keeps the tables of NFD
+ *  and neither the compatibility mappings nor the compositions. */
+export function normalizeNFD(text: string): string {
+  return within(NFD, text, Number.POSITIVE_INFINITY)!;
+}
+
+/** {@link normalize} in NFKC, for a program that asks for no other form: it keeps the tables of NFKC
+ *  and nothing of the forms that do not read them. */
+export function normalizeNFKC(text: string): string {
+  return within(NFKC, text, Number.POSITIVE_INFINITY)!;
+}
+
+/** {@link normalize} in NFKD, for a program that asks for no other form: it keeps the tables of NFKD
+ *  and not the compositions. */
+export function normalizeNFKD(text: string): string {
+  return within(NFKD, text, Number.POSITIVE_INFINITY)!;
+}
+
+/** {@link normalizeWithin} in NFC, as {@link normalizeNFC} is {@link normalize} in it. */
+export function normalizeNFCWithin(text: string, longest: number): string | undefined {
+  return within(NFC, text, checkedBound(longest));
+}
+
+/** {@link normalizeWithin} in NFD, as {@link normalizeNFD} is {@link normalize} in it. */
+export function normalizeNFDWithin(text: string, longest: number): string | undefined {
+  return within(NFD, text, checkedBound(longest));
+}
+
+/** {@link normalizeWithin} in NFKC, as {@link normalizeNFKC} is {@link normalize} in it. */
+export function normalizeNFKCWithin(text: string, longest: number): string | undefined {
+  return within(NFKC, text, checkedBound(longest));
+}
+
+/** {@link normalizeWithin} in NFKD, as {@link normalizeNFKD} is {@link normalize} in it. */
+export function normalizeNFKDWithin(text: string, longest: number): string | undefined {
+  return within(NFKD, text, checkedBound(longest));
 }
 
 function factsOf(form: Form): FormFacts {
@@ -238,8 +303,8 @@ const FEW_MARKS = 32;
  * and that many marks, whatever the length of the text.
  */
 class Composing {
-  readonly #compatibility: boolean;
-  readonly #composes: boolean;
+  readonly #decomposition: (cp: number) => string | undefined;
+  readonly #composite: ((starter: number, cp: number) => number) | undefined;
   readonly #stableBit: number;
   readonly #longest: number;
   readonly #parts: number[] = new Array<number>(LONGEST_DECOMPOSITION).fill(0);
@@ -252,8 +317,8 @@ class Composing {
   #marks: number[] = [];
 
   constructor(form: FormFacts, longest: number) {
-    this.#compatibility = form.compatibility;
-    this.#composes = form.composes;
+    this.#decomposition = form.decomposition;
+    this.#composite = form.composite;
     this.#stableBit = form.stableBit;
     this.#longest = longest;
   }
@@ -277,7 +342,7 @@ class Composing {
         break;
       }
       j += cp > 0xFFFF ? 2 : 1;
-      const length = decomposeInto(this.#parts, cp, this.#compatibility);
+      const length = decomposeInto(this.#parts, cp, this.#decomposition);
       if (length === 0) {
         if (!this.#take(cp)) {
           return -1;
@@ -315,8 +380,8 @@ class Composing {
       return true;
     }
     const kept = this.#settle();
-    if (this.#composes && this.#starter >= 0 && kept === 0) {
-      const composed = compose(this.#starter, cp);
+    if (this.#composite !== undefined && this.#starter >= 0 && kept === 0) {
+      const composed = this.#composite(this.#starter, cp);
       if (composed >= 0) {
         this.#starter = composed;
         return true;
@@ -338,7 +403,7 @@ class Composing {
     if (this.#starter < 0) {
       return marks;
     }
-    return 1 + (this.#composes ? Math.max(marks - MOST_MARKS_COMPOSED, 0) : marks);
+    return 1 + (this.#composite !== undefined ? Math.max(marks - MOST_MARKS_COMPOSED, 0) : marks);
   }
 
   /** Puts the held marks in canonical order and, where the form composes, composes into the starter
@@ -347,7 +412,8 @@ class Composing {
     if (this.#marks.length > 1) {
       this.#order();
     }
-    if (!this.#composes || this.#starter < 0) {
+    const composite = this.#composite;
+    if (composite === undefined || this.#starter < 0) {
       return this.#marks.length;
     }
     const marks = this.#marks;
@@ -356,7 +422,7 @@ class Composing {
     for (let i = 0; i < marks.length; i++) {
       const mark = marks[i]!;
       const markClass = combiningClass(mark);
-      const composed = lastClass < markClass ? compose(this.#starter, mark) : -1;
+      const composed = lastClass < markClass ? composite(this.#starter, mark) : -1;
       if (composed >= 0) {
         this.#starter = composed;
       } else {
@@ -441,7 +507,7 @@ function isHangulSyllable(cp: number): boolean {
 
 /** Writes `cp`'s full decomposition into `parts`, which has room for the longest, and answers how
  *  many code points it is, or 0 where `cp` is its own. */
-function decomposeInto(parts: number[], cp: number, compatibility: boolean): number {
+function decomposeInto(parts: number[], cp: number, decomposition: (cp: number) => string | undefined): number {
   if (isHangulSyllable(cp)) {
     const sIndex = cp - S_BASE;
     parts[0] = L_BASE + Math.floor(sIndex / N_COUNT);
@@ -453,13 +519,14 @@ function decomposeInto(parts: number[], cp: number, compatibility: boolean): num
     parts[2] = t;
     return 3;
   }
-  return decomposeTables(parts, 0, cp, compatibility);
+  return decomposeTables(parts, 0, cp, decomposition);
 }
 
 /** Writes `cp`'s decomposition by the tables, followed as far as they go, into `parts` from `at`,
  *  and answers how many code points it is, or 0 where the tables name no decomposition of `cp`. */
-function decomposeTables(parts: number[], at: number, cp: number, compatibility: boolean): number {
-  const mapped = decomposition(cp, compatibility);
+function decomposeTables(parts: number[], at: number, cp: number,
+  decomposition: (cp: number) => string | undefined): number {
+  const mapped = decomposition(cp);
   if (mapped === undefined) {
     return 0;
   }
@@ -467,7 +534,7 @@ function decomposeTables(parts: number[], at: number, cp: number, compatibility:
   for (let i = 0; i < mapped.length;) {
     const part = mapped.codePointAt(i)!;
     i += part > 0xFFFF ? 2 : 1;
-    let further = decomposeTables(parts, at + length, part, compatibility);
+    let further = decomposeTables(parts, at + length, part, decomposition);
     if (further === 0) {
       parts[at + length] = part;
       further = 1;
@@ -477,17 +544,21 @@ function decomposeTables(parts: number[], at: number, cp: number, compatibility:
   return length;
 }
 
-/** `cp`'s one-step decomposition by CANONICAL, or with `compatibility` by COMPATIBILITY as well,
- *  read where DECOMPOSITION_POSITION says it is; `undefined` where it has none. */
-function decomposition(cp: number, compatibility: boolean): string | undefined {
+/** `cp`'s one-step canonical decomposition, read from CANONICAL_TO where DECOMPOSITION_POSITION says
+ *  it is; `undefined` where it has none. */
+function canonicalDecomposition(cp: number): string | undefined {
+  const at = valueAt(DECOMPOSITION_POSITION_BLOCKS, DECOMPOSITION_POSITION_PAGES, cp);
+  return at === 0 || at > CANONICAL_TO.length ? undefined : CANONICAL_TO[at - 1];
+}
+
+/** `cp`'s one-step decomposition of the compatibility forms: the canonical one, or the one
+ *  COMPATIBILITY_TO holds where DECOMPOSITION_POSITION says it is; `undefined` where it has none. */
+function compatibilityDecomposition(cp: number): string | undefined {
   const at = valueAt(DECOMPOSITION_POSITION_BLOCKS, DECOMPOSITION_POSITION_PAGES, cp);
   if (at === 0) {
     return undefined;
   }
-  if (at <= CANONICAL_TO.length) {
-    return CANONICAL_TO[at - 1];
-  }
-  return compatibility ? COMPATIBILITY_TO[at - CANONICAL_TO.length - 1] : undefined;
+  return at <= CANONICAL_TO.length ? CANONICAL_TO[at - 1] : COMPATIBILITY_TO[at - CANONICAL_TO.length - 1];
 }
 
 /** The canonical combining class of `cp`: 0 for a starter, and for a mark the class canonical
@@ -501,7 +572,7 @@ function combiningClass(cp: number): number {
  * Hangul's arithmetic L+V and LV+T composition, or the pair of COMPOSITION_PAIRS in the row of
  * `starter` that has the column of `cp`.
  */
-function compose(starter: number, cp: number): number {
+function primaryComposite(starter: number, cp: number): number {
   if (starter >= L_BASE && starter < L_BASE + L_COUNT && cp >= V_BASE && cp < V_BASE + V_COUNT) {
     return S_BASE + ((starter - L_BASE) * V_COUNT + (cp - V_BASE)) * T_COUNT;
   }
