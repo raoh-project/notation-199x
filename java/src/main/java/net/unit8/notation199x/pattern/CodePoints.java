@@ -170,9 +170,16 @@ public record CodePoints(List<Range> ranges) {
      * way round is told so whichever way it came.
      */
     private static CodePoints scalars(int from, int to) {
+        // The ends of a run come in here from a caller, and what is written after this is not
+        // looked at again: a run made as a Range would have been refused these, and this is the
+        // one place a run is made out of ints that no Range has seen.
         if (from > to) {
             throw new IllegalArgumentException("a run of symbols runs from low to high: "
                     + from + ".." + to);
+        }
+        if (from < 0 || to > LAST) {
+            throw new IllegalArgumentException("a run of symbols runs from low to high inside"
+                    + " the universe: " + from + ".." + to);
         }
         Ends out = new Ends(4);
         out.scalars(from, to);
@@ -523,12 +530,33 @@ public record CodePoints(List<Range> ranges) {
         private final int hash;
 
         Runs(int[] ends) {
+            assert spelledAsASetIs(ends) : "runs are sorted, apart, never touching and made of"
+                    + " scalar values: " + Arrays.toString(ends);
             this.ends = ends;
             int out = 1;
             for (int i = 0; i < ends.length; i += 2) {
                 out = 31 * out + (31 * ends[i] + ends[i + 1]);
             }
             this.hash = out;
+        }
+
+        /**
+         * Whether {@code ends} is what a set holds. What makes the runs is trusted not to be told
+         * twice, and this is where it is told once: every way of making them comes through here,
+         * and a run that no {@link Range} has seen is looked at as one would have been.
+         */
+        private static boolean spelledAsASetIs(int[] ends) {
+            int last = -2;
+            for (int i = 0; i < ends.length; i += 2) {
+                int from = ends[i];
+                int to = ends[i + 1];
+                if (from <= last || from < 0 || to > LAST || from > to
+                        || (from <= SURROGATES_TO && to >= SURROGATES_FROM)) {
+                    return false;
+                }
+                last = to + 1;
+            }
+            return ends.length % 2 == 0;
         }
 
         @Override

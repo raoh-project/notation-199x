@@ -9,6 +9,7 @@ import java.util.Random;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -77,6 +78,36 @@ class TwoSetsMeetByTheirRunsTest {
                 across.and(CodePoints.between(0xD7FF, 0xE000)));
         for (int surrogate = 0xD800; surrogate <= 0xDFFF; surrogate += 0x7F) {
             assertFalse(across.and(CodePoints.EVERYTHING).has(surrogate));
+        }
+    }
+
+    /** What a Range refused before runs were held as ends is still refused from the ends. */
+    @Test
+    void aRunOutsideTheUniverseIsRefusedHoweverItIsMade() {
+        for (int[] run : new int[][] {{-1, 5}, {-5, -1}, {0x110000, 0x110001}, {0, 0x110000},
+                {5, 4}, {0xD800, 0xD800}, {0xD7FF, 0xD800}, {0xDFFF, 0xE000}}) {
+            String run_ = run[0] + ".." + run[1];
+            assertThrows(IllegalArgumentException.class, () -> CodePoints.between(run[0], run[1]), run_);
+            assertThrows(IllegalArgumentException.class, () -> new CodePoints.Range(run[0], run[1]),
+                    run_);
+        }
+        assertThrows(IllegalArgumentException.class, () -> CodePoints.below(-1));
+        assertThrows(IllegalArgumentException.class, () -> CodePoints.below(CodePoints.LAST + 1));
+        assertThrows(IllegalArgumentException.class, () -> CodePoints.of(-1));
+        assertThrows(IllegalArgumentException.class, () -> CodePoints.of(CodePoints.LAST + 1));
+    }
+
+    @Test
+    void theEdgesOfTheUniverseAreRunsLikeAnyOther() {
+        assertEquals(of(0, 0), CodePoints.between(0, 0));
+        assertEquals(of(CodePoints.LAST, CodePoints.LAST),
+                CodePoints.between(CodePoints.LAST, CodePoints.LAST));
+        assertEquals(CodePoints.EVERYTHING, CodePoints.between(0, CodePoints.LAST));
+        assertEquals(of(0, 0xD7FF), CodePoints.below(0xD800 - 1 + 1));
+        assertEquals(CodePoints.EVERYTHING, CodePoints.below(CodePoints.LAST).or(CodePoints.of(CodePoints.LAST)));
+        // And what is held reads back through the public runs, which are made as a Range is.
+        for (CodePoints.Range each : CodePoints.between(0, CodePoints.LAST).ranges()) {
+            assertTrue(each.from() >= 0 && each.to() <= CodePoints.LAST);
         }
     }
 
