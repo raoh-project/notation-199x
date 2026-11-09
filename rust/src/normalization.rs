@@ -156,7 +156,6 @@ pub fn normalize_within(form: Form, text: &str, longest: usize) -> Option<String
 
 /// [`normalize_within`], which asks nothing of `longest` before it holds a mark where `BOUNDED` is
 /// false: [`normalize`] does not pay for what only a bound needs.
-#[inline(never)]
 fn normalized<const BOUNDED: bool, const COMPAT: bool, const COMPOSE: bool>(
     text: &str,
     longest: usize,
