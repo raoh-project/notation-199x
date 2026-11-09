@@ -141,7 +141,10 @@ public final class Automaton {
      * construction handed in, each once, which making them already cost.
      */
     private Automaton(Laying laid, BitSet accepting) {
-        Map<CodePoints, CodePoints> met = new IdentityHashMap<>();
+        // A set met again as itself is known by the hash it holds and by being the same object, so
+        // one map is enough: the sets are hashed once each, and compared only where they collide.
+        // It holds the sets that differ and not the steps there are, which is why it is not sized by
+        // them: a machine whose every step is over one set holds one.
         Map<CodePoints, CodePoints> held = new HashMap<>();
         int states = laid.states;
         int[] stepStart = new int[states + 1];
@@ -158,12 +161,8 @@ public final class Automaton {
         int[] filled = Arrays.copyOf(stepStart, states);
         for (int at = 0; at < laid.steps; at++) {
             CodePoints over = laid.stepOver[at];
-            CodePoints one = met.get(over);
-            if (one == null) {
-                CodePoints had = held.putIfAbsent(over, over);
-                one = had != null ? had : over;
-                met.put(over, one);
-            }
+            CodePoints had = held.putIfAbsent(over, over);
+            CodePoints one = had != null ? had : over;
             int place = filled[laid.stepFrom[at]]++;
             stepTo[place] = laid.stepTo[at];
             stepOver[place] = one;
@@ -670,11 +669,11 @@ public final class Automaton {
     private static long meeting(Automaton one, int mine, Automaton other, int theirs) {
         long runsOfOne = 0;
         for (int place = one.stepStart[mine]; place < one.stepStart[mine + 1]; place++) {
-            runsOfOne += 1 + one.stepOver[place].ranges().size();
+            runsOfOne += 1 + one.stepOver[place].runCount();
         }
         long runsOfOther = 0;
         for (int place = other.stepStart[theirs]; place < other.stepStart[theirs + 1]; place++) {
-            runsOfOther += other.stepOver[place].ranges().size();
+            runsOfOther += other.stepOver[place].runCount();
         }
         return 1 + runsOfOne * (other.stepStart[theirs + 1] - other.stepStart[theirs])
                 + runsOfOther * (one.stepStart[mine + 1] - one.stepStart[mine]);
@@ -691,44 +690,94 @@ public final class Automaton {
 
         private final int wide;
         private final Meter.Making making;
-        private final Map<Long, Integer> known = new HashMap<>();
-        private final List<Integer> mine = new ArrayList<>();
-        private final List<Integer> theirs = new ArrayList<>();
+        /** The pairs by their key, open-addressed: a pair is looked for on every step of a walk,
+         *  and boxing a key and a number for each was most of what the look cost. Small to begin
+         *  with and doubled as pairs are reached, as everything here is paid for by what the walk
+         *  reaches and not by the pairs there could be. */
+        private long[] keys = emptyKeys(16);
+        private int[] numbers = new int[16];
+        private int[] mine = new int[16];
+        private int[] theirs = new int[16];
+        private int count;
 
         Pairs(int wide, Meter.Making making) {
             this.wide = wide;
             this.making = making;
         }
 
+        private static long[] emptyKeys(int room) {
+            long[] out = new long[room];
+            Arrays.fill(out, -1L);
+            return out;
+        }
+
+        private static int slot(long key, int mask) {
+            long mixed = key * 0x9E3779B97F4A7C15L;
+            return (int) (mixed >>> 32) & mask;
+        }
+
         /** Which state the pair is, making it where it has not been reached before. */
         int at(int mine, int theirs) {
             // A long, because the two sizes multiplied is what this could run to and nothing has
             // been asked about that: a key that overflowed would put two pairs in one state.
-            Long key = (long) mine * wide + theirs;
-            Integer had = known.get(key);
-            if (had != null) {
-                return had;
+            long key = (long) mine * wide + theirs;
+            int mask = keys.length - 1;
+            int slot = slot(key, mask);
+            while (keys[slot] != -1L) {
+                if (keys[slot] == key) {
+                    return numbers[slot];
+                }
+                slot = (slot + 1) & mask;
             }
             if (!making.state()) {
                 throw new TooMany();
             }
-            int made = this.mine.size();
-            this.mine.add(mine);
-            this.theirs.add(theirs);
-            known.put(key, made);
+            int made = count++;
+            if (made == this.mine.length) {
+                this.mine = Arrays.copyOf(this.mine, made * 2);
+                this.theirs = Arrays.copyOf(this.theirs, made * 2);
+            }
+            this.mine[made] = mine;
+            this.theirs[made] = theirs;
+            keys[slot] = key;
+            numbers[slot] = made;
+            if (count * 2 > keys.length) {
+                grow();
+            }
             return made;
         }
 
+        private void grow() {
+            long[] old = keys;
+            int[] oldNumbers = numbers;
+            // Four times while it is small, where a table is made again and again on the way to the
+            // size a walk comes to and what is made again is next to nothing to hold.
+            int room = old.length < 4096 ? old.length * 4 : old.length * 2;
+            keys = emptyKeys(room);
+            numbers = new int[room];
+            int mask = keys.length - 1;
+            for (int at = 0; at < old.length; at++) {
+                if (old[at] != -1L) {
+                    int slot = slot(old[at], mask);
+                    while (keys[slot] != -1L) {
+                        slot = (slot + 1) & mask;
+                    }
+                    keys[slot] = old[at];
+                    numbers[slot] = oldNumbers[at];
+                }
+            }
+        }
+
         int count() {
-            return mine.size();
+            return count;
         }
 
         int mine(int state) {
-            return mine.get(state);
+            return mine[state];
         }
 
         int theirs(int state) {
-            return theirs.get(state);
+            return theirs[state];
         }
     }
 
@@ -1151,16 +1200,16 @@ public final class Automaton {
                     // join would order everything before it again.
                     long runCount = 0;
                     for (int one : gathered) {
-                        runCount += symbols.get(one).ranges().size();
+                        runCount += symbols.get(one).runCount();
                     }
                     if (!making.work(1L + runCount)) {
                         throw new TooMany();
                     }
-                    List<CodePoints.Range> runs = new ArrayList<>((int) runCount);
+                    List<CodePoints> parts = new ArrayList<>(gathered.length);
                     for (int one : gathered) {
-                        runs.addAll(symbols.get(one).ranges());
+                        parts.add(symbols.get(one));
                     }
-                    over = new CodePoints(runs);
+                    over = CodePoints.unionOf(parts);
                     labels.put(key, over);
                 }
                 laid.step(at, over, to);
@@ -1241,8 +1290,9 @@ public final class Automaton {
             out.append(accepting.get(at) ? "!" : ".");
             for (int place = stepStart[at]; place < stepStart[at + 1]; place++) {
                 out.append(stepTo[place]).append(':');
-                for (CodePoints.Range range : stepOver[place].ranges()) {
-                    out.append(range.from()).append('-').append(range.to()).append(',');
+                CodePoints label = stepOver[place];
+                for (int run = 0; run < label.runCount(); run++) {
+                    out.append(label.from(run)).append('-').append(label.to(run)).append(',');
                 }
                 out.append(';');
             }
@@ -1654,17 +1704,11 @@ public final class Automaton {
         Set<CodePoints> read = Collections.newSetFromMap(new IdentityHashMap<>());
         for (CodePoints over : machine.stepOver) {
             if (read.add(over)) {
-                List<CodePoints.Range> ranges = over.ranges();
-                if (!making.work(1L + ranges.size())) {
+                if (!making.work(1L + over.runCount())) {
                     throw new TooMany();
                 }
-                int[] pairs = new int[ranges.size() * 2];
-                for (int at = 0; at < ranges.size(); at++) {
-                    pairs[at * 2] = ranges.get(at).from();
-                    pairs[at * 2 + 1] = ranges.get(at).to();
-                }
                 labels.add(over);
-                sets.add(pairs);
+                sets.add(over.pairs());
             }
         }
         SymbolPartition classes = SymbolPartition.of(sets, making);
