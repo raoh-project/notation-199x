@@ -185,8 +185,17 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
      *                   does not compose, and otherwise one more than where the composite is among
      *                   {@code composites}
      * @param composites the primary composites, in order of code point
+     * @param rowStarts  where each row begins among {@code pairs}, by row number less 1, and
+     *                   {@code pairs.length} after the last: the pairs of a row are
+     *                   {@code pairs[rowStarts[row]..rowStarts[row + 1])}
+     * @param pairs      the pairs that compose, a row at a time and in order of column within a
+     *                   row, each the composite's code point shifted left by 8 and the column of
+     *                   the second member, counted from 1 as {@code seconds} counts it. This holds
+     *                   what {@code cells} and {@code composites} hold of the pairs that compose,
+     *                   and not the cell of every pair
      */
-    record Composing(PagedTable firsts, PagedTable seconds, int columns, int[] cells, int[] composites) {}
+    record Composing(PagedTable firsts, PagedTable seconds, int columns, int[] cells, int[] composites,
+                     int[] rowStarts, int[] pairs) {}
 
     /** The four normalization forms, by name, in the order each is a bit of
      *  {@link ByCodePoint#stableStarters}. */
@@ -573,9 +582,28 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
             int[] pair = compositions.entries().get(composites[i]);
             cells[rows.get(pair[0]) * columns.size() + columns.get(pair[1])] = i + 1;
         }
+        if (columns.size() > 0xFF) {
+            throw new IllegalStateException("a column of the compositions does not fit the eight bits it is held in");
+        }
+        int[] rowStarts = new int[rows.size() + 1];
+        int[] pairs = new int[composites.length];
+        int at = 0;
+        for (int row = 0; row < rows.size(); row++) {
+            rowStarts[row] = at;
+            for (int column = 0; column < columns.size(); column++) {
+                int cell = cells[row * columns.size() + column];
+                if (cell != 0) {
+                    pairs[at++] = composites[cell - 1] << 8 | (column + 1);
+                }
+            }
+        }
+        rowStarts[rows.size()] = at;
+        if (at != pairs.length) {
+            throw new IllegalStateException("the compositions hold " + at + " pairs of " + pairs.length);
+        }
         return new Composing(PagedTable.of(cp -> rows.containsKey(cp) ? rows.get(cp) + 1 : 0),
                 PagedTable.of(cp -> columns.containsKey(cp) ? columns.get(cp) + 1 : 0),
-                columns.size(), cells, composites);
+                columns.size(), cells, composites, rowStarts, pairs);
     }
 
     /** {@link ByCodePoint#decomposition}: the canonical decompositions numbered from 1, and the
