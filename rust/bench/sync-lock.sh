@@ -12,7 +12,7 @@ set -eu
 cd "$1"
 before=$(mktemp)
 cp Cargo.lock "$before"
-cargo update --offline --quiet -p notation199x
+cargo update --quiet -p notation199x
 other=$(diff "$before" Cargo.lock | grep '^[<>]' | grep -Ev '^[<>] version = ' || true)
 rm -f "$before"
 if [ -n "$other" ]; then

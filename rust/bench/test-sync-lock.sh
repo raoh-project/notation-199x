@@ -17,5 +17,5 @@ sh "$here/sync-lock.sh" "$tmp/rust/bench"
 grep -A1 '^name = "notation199x"$' "$tmp/rust/bench/Cargo.lock" | grep -q "version = \"$version.1\""
 changed=$(diff "$here/Cargo.lock" "$tmp/rust/bench/Cargo.lock" | grep -c '^[<>]')
 test "$changed" -eq 2
-(cd "$tmp/rust/bench" && cargo metadata --locked --offline --format-version 1 >/dev/null)
+(cd "$tmp/rust/bench" && cargo metadata --locked --format-version 1 >/dev/null)
 echo "ok: the lock file follows the version of the crate and nothing else"

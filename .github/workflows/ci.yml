@@ -303,6 +303,8 @@ jobs:
         run: rustup toolchain install
       - name: The report refuses a comparison that cannot be made
         run: python3 -m unittest discover -s rust/bench -v
+      - name: The lock file of the benchmarks follows the version of the crate
+        run: sh rust/bench/test-sync-lock.sh
       - name: Format and lint the benchmarks
         working-directory: rust/bench
         run: |
