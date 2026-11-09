@@ -14,7 +14,7 @@
 use crate::paged::Paged;
 
 /// The one-step canonical decomposition; a code point not here has none (2081 code points).
-pub(crate) static CANONICAL: &[(char, &[char])] = &[
+pub(crate) static CANONICAL: [(char, &[char]); 2081] = [
     ('\u{00C0}', &['\u{0041}', '\u{0300}']),
     ('\u{00C1}', &['\u{0041}', '\u{0301}']),
     ('\u{00C2}', &['\u{0041}', '\u{0302}']),
@@ -2099,7 +2099,7 @@ pub(crate) static CANONICAL: &[(char, &[char])] = &[
 ];
 
 /// The one-step compatibility decomposition, its `<tag>` dropped; a code point is in this, in `CANONICAL` or in neither (3901 code points).
-pub(crate) static COMPATIBILITY: &[(char, &[char])] = &[
+pub(crate) static COMPATIBILITY: [(char, &[char]); 3901] = [
     ('\u{00A0}', &['\u{0020}']),
     ('\u{00A8}', &['\u{0020}', '\u{0308}']),
     ('\u{00AA}', &['\u{0061}']),

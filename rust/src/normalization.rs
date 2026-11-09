@@ -735,11 +735,11 @@ mod tests {
                 assert_eq!(bit, form.on(|| 1, || 2, || 4, || 8), "{form:?}");
             }
             // The table of where each decomposition is answers what the searched mappings do.
-            let canonical = mapped(CANONICAL, c);
+            let canonical = mapped(&CANONICAL, c);
             assert_eq!(decomposition_of::<false>(c), canonical, "{c:?}");
             assert_eq!(
                 decomposition_of::<true>(c),
-                canonical.or_else(|| mapped(COMPATIBILITY, c)),
+                canonical.or_else(|| mapped(&COMPATIBILITY, c)),
                 "{c:?} with compatibility"
             );
         }

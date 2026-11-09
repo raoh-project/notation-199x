@@ -75,11 +75,11 @@ final class RustEmitter {
                 List.of("UnicodeData.txt", "CompositionExclusions.txt", "DerivedNormalizationProps.txt"));
         out.append("use crate::paged::Paged;\n\n");
         mapping(out, "CANONICAL", "The one-step canonical decomposition; a code point not here has none",
-                decomposition.canonical());
+                decomposition.canonical(), true);
         mapping(out, "COMPATIBILITY",
                 "The one-step compatibility decomposition, its `<tag>` dropped; a code point is in this,"
                         + " in `CANONICAL` or in neither",
-                decomposition.compatibility());
+                decomposition.compatibility(), true);
 
         paged3(out, "DECOMPOSITION_POSITION", "For each code point, 0 where it has no decomposition, one more"
                 + " than where it is in `CANONICAL` where it has a canonical one, and otherwise `CANONICAL.len()`"
@@ -201,8 +201,18 @@ final class RustEmitter {
     }
 
     private static void mapping(StringBuilder out, String name, String what, UcdModel.CodePointMapping mapping) {
+        mapping(out, name, what, mapping, false);
+    }
+
+    /** {@code named} where the table is an array and not a reference to one, so that a program that does
+     *  not use it is found not to hold it by the symbol of {@code name}, which a reference to an array
+     *  does not leave. */
+    private static void mapping(StringBuilder out, String name, String what, UcdModel.CodePointMapping mapping,
+                                boolean named) {
         out.append("/// ").append(what).append(" (").append(mapping.entries().size()).append(" code points).\n");
-        out.append("pub(crate) static ").append(name).append(": &[(char, &[char])] = &[\n");
+        out.append("pub(crate) static ").append(name).append(named
+                ? ": [(char, &[char]); " + mapping.entries().size() + "] = [\n"
+                : ": &[(char, &[char])] = &[\n");
         mapping.entries().forEach((cp, mapped) -> {
             out.append("    (").append(code(cp)).append(", &[");
             for (int i = 0; i < mapped.length; i++) {
