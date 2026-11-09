@@ -12,11 +12,11 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The meeting of two sets is made in one pass over their runs, and says what the complement form
+ * The meeting of two sets is made by walking their runs once, and says what the complement form
  * says: the symbols in both. The runs it writes are parts of runs that were apart, so they come out
  * sorted, apart and not touching without being sorted again.
  */
-class TwoSetsMeetInOnePassTest {
+class TwoSetsMeetByTheirRunsTest {
 
     private static CodePoints of(int... ends) {
         List<CodePoints.Range> runs = new ArrayList<>();

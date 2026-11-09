@@ -107,12 +107,6 @@ final class PatternImages {
     }
 
     private static int[] pairs(CodePoints over) {
-        List<CodePoints.Range> ranges = over.ranges();
-        int[] out = new int[ranges.size() * 2];
-        for (int at = 0; at < ranges.size(); at++) {
-            out[at * 2] = ranges.get(at).from();
-            out[at * 2 + 1] = ranges.get(at).to();
-        }
-        return out;
+        return over.pairs();
     }
 }

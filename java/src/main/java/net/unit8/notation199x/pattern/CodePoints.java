@@ -258,11 +258,12 @@ public record CodePoints(List<Range> ranges) {
     /**
      * Both of them.
      *
-     * <p>Made in one pass over the runs of both, which are sorted and apart: at each step the
+     * <p>Made by walking the runs of both, which are sorted and apart: at each step the
      * overlap of the two runs under the fingers, and then the finger whose run ends first moves on.
      * Every overlap is part of a run of each side, so none is over a surrogate, and two overlaps
      * that touched would mean two runs of one side touched. No complement is made, and nothing
-     * written is sorted.
+     * written is sorted. It is two passes over the runs and no more: one counts the overlaps, so that
+     * the one array they are written to is the size it comes to, and one writes them.
      *
      * @param other another set
      * @return the symbols in both
@@ -415,6 +416,49 @@ public record CodePoints(List<Range> ranges) {
         return ends().clone();
     }
 
+    /** How many runs these are, which a caller that only counts them asks without making any. */
+    int runCount() {
+        return ends().length / 2;
+    }
+
+    /** The first symbol of the run at {@code index}, without making the run. */
+    int from(int index) {
+        return ends()[index * 2];
+    }
+
+    /** The last symbol of the run at {@code index}, without making the run. */
+    int to(int index) {
+        return ends()[index * 2 + 1];
+    }
+
+    /**
+     * Every symbol in any of {@code these}, which is what folding {@link #or} over them would be
+     * made in one sort and not one merge for each.
+     *
+     * @param these the sets
+     * @return the symbols in any of them
+     */
+    static CodePoints unionOf(java.util.Collection<CodePoints> these) {
+        int runs = 0;
+        for (CodePoints each : these) {
+            runs += each.runCount();
+        }
+        long[] keys = new long[runs];
+        int at = 0;
+        for (CodePoints each : these) {
+            int[] ends = each.ends();
+            for (int i = 0; i < ends.length; i += 2) {
+                keys[at++] = ((long) ends[i] << 32) | ends[i + 1];
+            }
+        }
+        Arrays.sort(keys);
+        Ends out = new Ends(runs * 2);
+        for (long key : keys) {
+            out.joining((int) (key >> 32), (int) key);
+        }
+        return out.made();
+    }
+
     private int[] ends() {
         return ((Runs) ranges).ends;
     }
@@ -473,10 +517,18 @@ public record CodePoints(List<Range> ranges) {
     private static final class Runs extends AbstractList<Range> implements RandomAccess {
 
         private final int[] ends;
-        private int hash;
+        /** Worked out when the runs are made, which is when they are read through once already:
+         *  a hash held lazily needs a value to mean it has not been, and every value is one a
+         *  set may hash to. */
+        private final int hash;
 
         Runs(int[] ends) {
             this.ends = ends;
+            int out = 1;
+            for (int i = 0; i < ends.length; i += 2) {
+                out = 31 * out + (31 * ends[i] + ends[i + 1]);
+            }
+            this.hash = out;
         }
 
         @Override
@@ -499,15 +551,7 @@ public record CodePoints(List<Range> ranges) {
 
         @Override
         public int hashCode() {
-            int out = hash;
-            if (out == 0) {
-                out = 1;
-                for (int i = 0; i < ends.length; i += 2) {
-                    out = 31 * out + (31 * ends[i] + ends[i + 1]);
-                }
-                hash = out;
-            }
-            return out;
+            return hash;
         }
     }
 
