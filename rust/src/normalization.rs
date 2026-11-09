@@ -2,8 +2,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::normalization_tables::{
-    CANONICAL, COMBINING_CLASS, COMPATIBILITY, COMPOSITES, COMPOSITION_CELLS, COMPOSITION_COLUMNS,
-    COMPOSITION_FIRST, COMPOSITION_SECOND, DECOMPOSITION_POSITION, LONGEST_DECOMPOSITION,
+    CANONICAL, COMBINING_CLASS, COMPATIBILITY, COMPOSITION_FIRST, COMPOSITION_PAIRS,
+    COMPOSITION_ROWS, COMPOSITION_SECOND, DECOMPOSITION_POSITION, LONGEST_DECOMPOSITION,
     MOST_MARKS_COMPOSED, NFC_TRIVIAL_LIMIT, NFD_TRIVIAL_LIMIT, NFKC_TRIVIAL_LIMIT,
     NFKD_TRIVIAL_LIMIT, STABLE,
 };
@@ -370,7 +370,7 @@ fn canonical_head(c: char) -> char {
     }
 }
 
-/// Whether a starter before `c` may compose with it: `c` has a column of [`COMPOSITION_CELLS`], or
+/// Whether a starter before `c` may compose with it: `c` has a column of [`COMPOSITION_PAIRS`], or
 /// is a Hangul vowel or trailing consonant.
 fn composes_back_into(c: char) -> bool {
     let c32 = u32::from(c);
@@ -645,7 +645,7 @@ fn decompose_hangul(c: char) -> Option<[Option<char>; 3]> {
 }
 
 /// The primary composite of `starter` followed by `c`, or `None` where the pair does not compose:
-/// Hangul's L+V and LV+T, or [`COMPOSITION_CELLS`] at the row of `starter` and the column of `c`.
+/// Hangul's L+V and LV+T, or [`COMPOSITION_PAIRS`] in the row of `starter`, by the column of `c`.
 fn compose(starter: char, c: char) -> Option<char> {
     let (s, c32) = (u32::from(starter), u32::from(c));
     if (L_BASE..L_BASE + L_COUNT).contains(&s) && (V_BASE..V_BASE + V_COUNT).contains(&c32) {
@@ -664,10 +664,12 @@ fn compose(starter: char, c: char) -> Option<char> {
     if row == 0 || column == 0 {
         return None;
     }
-    match COMPOSITION_CELLS[(row - 1) * COMPOSITION_COLUMNS + column - 1] {
-        0 => None,
-        at => Some(COMPOSITES[usize::from(at) - 1]),
-    }
+    let row = &COMPOSITION_PAIRS
+        [usize::from(COMPOSITION_ROWS[row - 1])..usize::from(COMPOSITION_ROWS[row])];
+    let at = row
+        .binary_search_by_key(&column, |&pair| usize::from(pair as u8))
+        .ok()?;
+    char::from_u32(row[at] >> 8)
 }
 
 #[cfg(test)]
@@ -1005,10 +1007,17 @@ mod tests {
                 "{first:?} {second:?}"
             );
         }
+        assert_eq!(COMPOSITION_PAIRS.len(), stated);
         assert_eq!(
-            COMPOSITION_CELLS.iter().filter(|&&at| at != 0).count(),
+            usize::from(COMPOSITION_ROWS[COMPOSITION_ROWS.len() - 1]),
             stated
         );
+        // A row is in order of column, where it is searched, and a row holds no column twice.
+        for rows in COMPOSITION_ROWS.windows(2) {
+            let row = &COMPOSITION_PAIRS[usize::from(rows[0])..usize::from(rows[1])];
+            assert!(!row.is_empty());
+            assert!(row.windows(2).all(|two| (two[0] as u8) < (two[1] as u8)));
+        }
         for c in (0..0x110000).filter_map(char::from_u32) {
             let column = COMPOSITION_SECOND.get(c);
             assert_eq!(column != 0, seconds[c as usize], "{c:?}");

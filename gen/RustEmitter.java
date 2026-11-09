@@ -95,27 +95,48 @@ final class RustEmitter {
 
         UcdModel.Composing composing = model.byCodePoint().composing();
         paged3(out, "COMPOSITION_FIRST", "For each code point, 0 where it is the first member of no primary"
-                + " composite, and otherwise one more than its row of `COMPOSITION_CELLS`.", composing.firsts(), "u16");
+                + " composite, and otherwise one more than its row of `COMPOSITION_ROWS`.", composing.firsts(), "u16");
         paged3(out, "COMPOSITION_SECOND", "For each code point, 0 where it is the second member of no primary"
-                + " composite, and otherwise one more than its column of `COMPOSITION_CELLS`. A starter before a"
+                + " composite, and otherwise its column of `COMPOSITION_PAIRS`, counted from 1. A starter before a"
                 + " code point may compose with it by the table where and only where this is not 0.",
                 composing.seconds(), "u8");
-        docComment(out, "How many second members there are, the length of a row of `COMPOSITION_CELLS`.");
-        out.append("pub(crate) const COMPOSITION_COLUMNS: usize = ").append(composing.columns()).append(";\n\n");
-        if (composing.composites().length > 0xFFFF) {
-            throw new IllegalStateException("COMPOSITION_CELLS does not fit the static it is written as");
+        // The pairs that compose, a row at a time and a row by column: the dense matrix of first by
+        // second members has a cell for every pair, and 3.4% of them hold a composite.
+        int rows = composing.firsts().greatest();
+        int columns = composing.columns();
+        if (columns > 0xFF || composing.composites().length > 0xFFFF) {
+            throw new IllegalStateException("the composition table does not fit the statics it is written as");
         }
-        docComment(out, "At `row * COMPOSITION_COLUMNS + column`, 0 where the pair does not compose, and otherwise"
-                + " one more than where the composite is in `COMPOSITES`. Hangul's, which are arithmetic, are not"
-                + " here.");
-        out.append("pub(crate) static COMPOSITION_CELLS: [u16; ").append(composing.cells().length).append("] = [\n");
-        values(out, composing.cells(), 4);
+        int[] offsets = new int[rows + 1];
+        int[] pairs = new int[composing.composites().length];
+        int at = 0;
+        for (int row = 0; row < rows; row++) {
+            offsets[row] = at;
+            for (int column = 0; column < columns; column++) {
+                int cell = composing.cells()[row * columns + column];
+                if (cell != 0) {
+                    // The composite takes 21 bits and the column, counted from 1, eight.
+                    pairs[at++] = composing.composites()[cell - 1] << 8 | (column + 1);
+                }
+            }
+        }
+        offsets[rows] = at;
+        if (at != pairs.length) {
+            throw new IllegalStateException("the composition table holds " + at + " pairs of "
+                    + pairs.length + " composites");
+        }
+        docComment(out, "Where each row of `COMPOSITION_PAIRS` begins, at the row of the first member as"
+                + " `COMPOSITION_FIRST` numbers it, less 1; the row ends where the next begins, and the last"
+                + " entry is the number of pairs.");
+        out.append("pub(crate) static COMPOSITION_ROWS: [u16; ").append(offsets.length).append("] = [\n");
+        values(out, offsets, 4);
         out.append("];\n\n");
-        docComment(out, "The primary composites, in order of code point.");
-        out.append("pub(crate) static COMPOSITES: [char; ").append(composing.composites().length).append("] = [\n");
-        for (int cp : composing.composites()) {
-            out.append("    ").append(code(cp)).append(",\n");
-        }
+        docComment(out, "The pairs that compose, " + pairs.length + " of them, the pairs of a first member"
+                + " together and in order of the column of the second member, as `COMPOSITION_SECOND` numbers it:"
+                + " each is the composite's code point shifted left by eight, and the column. Hangul's, which"
+                + " are arithmetic, are not here.");
+        out.append("pub(crate) static COMPOSITION_PAIRS: [u32; ").append(pairs.length).append("] = [\n");
+        values(out, pairs, 6);
         out.append("];\n\n");
 
         for (String form : UcdModel.FORMS) {
