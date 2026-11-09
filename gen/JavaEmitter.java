@@ -235,26 +235,22 @@ final class JavaEmitter {
 
         UcdModel.Composing composing = model.byCodePoint().composing();
         paged(out, "COMPOSITION_FIRST", "For each code point, 0 where it is the first member of no primary"
-                + " composite, and otherwise one more than its row of {@link #COMPOSITION_CELLS}.",
+                + " composite, and otherwise one more than its row of {@link #COMPOSITION_ROWS}.",
                 composing.firsts(), true);
         paged(out, "COMPOSITION_SECOND", "For each code point, 0 where it is the second member of no primary"
-                + " composite, and otherwise one more than its column of {@link #COMPOSITION_CELLS}. A starter"
+                + " composite, and otherwise its column of {@link #COMPOSITION_PAIRS}, counted from 1. A starter"
                 + " before a code point may compose with it by the table where and only where this is not 0.",
                 composing.seconds(), false);
-        docComment(out, "How many second members there are, the length of a row of {@link #COMPOSITION_CELLS}.");
-        out.append("    static final int COMPOSITION_COLUMNS = ").append(composing.columns()).append(";\n\n");
-        if (composing.composites().length > 0xFFFF) {
-            throw new IllegalStateException("COMPOSITION_CELLS does not fit the chars it is written as");
-        }
-        docComment(out, "At {@code row * COMPOSITION_COLUMNS + column}, 0 where the pair does not compose, and"
-                + " otherwise one more than where the composite is in {@link #COMPOSITES}. Hangul's, which are"
-                + " arithmetic, are not here.");
-        out.append("    static final char[] COMPOSITION_CELLS = decodeChars(")
-                .append(literal(packed(composing.cells(), 4), "")).append(");\n\n");
-        docComment(out, "The primary composites, in order of code point (" + composing.composites().length + ").");
-        out.append("    static final int[] COMPOSITES = decodeIntValues(")
-                .append(literal(hexValues(composing.composites())))
-                .append(");\n\n");
+        docComment(out, "Where each row of {@link #COMPOSITION_PAIRS} begins, at the row of the first member as"
+                + " {@link #COMPOSITION_FIRST_PAGES} numbers it, less 1; the row ends where the next begins, and"
+                + " the last where the pairs end.");
+        out.append("    static final int[] COMPOSITION_ROWS = decodeIntValues(")
+                .append(literal(hexValues(composing.rowStarts()))).append(");\n\n");
+        docComment(out, "The pairs that compose (" + composing.pairs().length + "), a row at a time and in order of"
+                + " the column of the second member within a row, each the composite shifted left by 8 and the"
+                + " column. Hangul's, which are arithmetic, are not here.");
+        out.append("    static final int[] COMPOSITION_PAIRS = decodeIntValues(")
+                .append(literal(hexValues(composing.pairs()))).append(");\n\n");
 
         out.append("    /** For each form, the least code point that is not a starter or whose quick check for the")
                 .append(" form is not Yes. Text made only of code points below it is its own normalization in")

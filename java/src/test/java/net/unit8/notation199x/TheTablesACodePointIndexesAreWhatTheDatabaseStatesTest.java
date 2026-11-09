@@ -181,12 +181,7 @@ class TheTablesACodePointIndexesAreWhatTheDatabaseStatesTest {
                 wrong.add(Integer.toHexString(first) + " " + Integer.toHexString(second));
             }
         }
-        int composing = 0;
-        for (char at : NormalizationTables.COMPOSITION_CELLS) {
-            if (at != 0) {
-                composing++;
-            }
-        }
+        int composing = NormalizationTables.COMPOSITION_PAIRS.length;
         assertEquals(stated, composing, "pairs the table composes");
         for (int cp = 0; cp <= Character.MAX_CODE_POINT; cp++) {
             boolean second = NormalizationTables.COMPOSITION_SECOND_PAGES[

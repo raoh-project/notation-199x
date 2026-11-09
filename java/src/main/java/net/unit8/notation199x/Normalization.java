@@ -633,8 +633,8 @@ public final class Normalization {
 
     /** The primary composite of {@code starter} followed by {@code cp}, or -1 if the pair does not
      *  compose — Hangul's algorithmic L+V and LV+T composition, or
-     *  {@link NormalizationTables#COMPOSITION_CELLS} at the row of {@code starter} and the column of
-     *  {@code cp}. */
+     *  the pair among {@link NormalizationTables#COMPOSITION_PAIRS} in the row of {@code starter} with
+     *  the column of {@code cp}. */
     static int compose(int starter, int cp) {
         int hangul = composeHangul(starter, cp);
         if (hangul >= 0) {
@@ -647,8 +647,22 @@ public final class Normalization {
         if (row == 0 || column == 0) {
             return -1;
         }
-        int at = NormalizationTables.COMPOSITION_CELLS[(row - 1) * NormalizationTables.COMPOSITION_COLUMNS + column - 1];
-        return at == 0 ? -1 : NormalizationTables.COMPOSITES[at - 1];
+        int[] pairs = NormalizationTables.COMPOSITION_PAIRS;
+        int low = NormalizationTables.COMPOSITION_ROWS[row - 1];
+        int high = NormalizationTables.COMPOSITION_ROWS[row] - 1;
+        while (low <= high) {
+            int mid = (low + high) >>> 1;
+            int found = pairs[mid] & 0xFF;
+            if (found == column) {
+                return pairs[mid] >>> 8;
+            }
+            if (found < column) {
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return -1;
     }
 
     private static int composeHangul(int starter, int cp) {
