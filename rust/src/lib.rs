@@ -32,6 +32,7 @@ mod white_space_tables;
 
 mod case;
 mod normalization;
+mod paged;
 mod pattern;
 mod tables;
 mod temporal;

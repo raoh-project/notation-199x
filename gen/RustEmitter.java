@@ -1,4 +1,5 @@
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -72,6 +73,7 @@ final class RustEmitter {
                         + " composition exclusions, checked against DerivedNormalizationProps.txt's"
                         + " Full_Composition_Exclusion when they were generated",
                 List.of("UnicodeData.txt", "CompositionExclusions.txt", "DerivedNormalizationProps.txt"));
+        out.append("use crate::paged::Paged;\n\n");
         mapping(out, "CANONICAL", "The one-step canonical decomposition; a code point not here has none",
                 decomposition.canonical());
         mapping(out, "COMPATIBILITY",
@@ -79,12 +81,12 @@ final class RustEmitter {
                         + " in `CANONICAL` or in neither",
                 decomposition.compatibility());
 
-        paged(out, "DECOMPOSITION_POSITION", "For each code point, 0 where it has no decomposition, one more"
+        paged3(out, "DECOMPOSITION_POSITION", "For each code point, 0 where it has no decomposition, one more"
                 + " than where it is in `CANONICAL` where it has a canonical one, and otherwise `CANONICAL.len()`"
                 + " and one more than where it is in `COMPATIBILITY`.", model.byCodePoint().decomposition(), "u16");
-        paged(out, "COMBINING_CLASS", "Each code point's canonical combining class, 0 for a starter.",
+        paged3(out, "COMBINING_CLASS", "Each code point's canonical combining class, 0 for a starter.",
                 model.byCodePoint().combiningClass(), "u8");
-        paged(out, "STABLE", "For each code point, the forms it is a stable starter in, a bit each: NFC 1, NFD 2,"
+        paged3(out, "STABLE", "For each code point, the forms it is a stable starter in, a bit each: NFC 1, NFD 2,"
                 + " NFKC 4 and NFKD 8. A stable starter is a starter whose quick check for the form is Yes. Text"
                 + " made only of them is its own normalization in the form, and one of them ends what comes"
                 + " before it: no mark after it is put in order before it or composes with a starter before it,"
@@ -92,9 +94,9 @@ final class RustEmitter {
                 + " checks.", model.byCodePoint().stableStarters(), "u8");
 
         UcdModel.Composing composing = model.byCodePoint().composing();
-        paged(out, "COMPOSITION_FIRST", "For each code point, 0 where it is the first member of no primary"
+        paged3(out, "COMPOSITION_FIRST", "For each code point, 0 where it is the first member of no primary"
                 + " composite, and otherwise one more than its row of `COMPOSITION_CELLS`.", composing.firsts(), "u16");
-        paged(out, "COMPOSITION_SECOND", "For each code point, 0 where it is the second member of no primary"
+        paged3(out, "COMPOSITION_SECOND", "For each code point, 0 where it is the second member of no primary"
                 + " composite, and otherwise one more than its column of `COMPOSITION_CELLS`. A starter before a"
                 + " code point may compose with it by the table where and only where this is not 0.",
                 composing.seconds(), "u8");
@@ -222,6 +224,42 @@ final class RustEmitter {
         out.append("pub(crate) static ").append(name).append("_PAGES: [").append(type).append("; ")
                 .append(values.length).append("] = [\n");
         values(out, values, type.equals("u8") ? 2 : 4);
+        out.append("];\n\n");
+    }
+
+    /**
+     * {@code table} laid out in three levels, as three statics {@code <NAME>_TOP}, {@code <NAME>_MIDDLE}
+     * and {@code <NAME>_LEAF} and a {@code Paged} over them named {@code <NAME>}, read by
+     * {@code <NAME>.get(c)}. The sizes of a block and a page are those that take the fewest bytes for
+     * this table, and are the {@code Paged}'s type parameters.
+     */
+    private static void paged3(StringBuilder out, String name, String what, PagedTable table, String type) {
+        long most = type.equals("u8") ? 0xFF : 0xFFFF;
+        ThreeLevelTable layout = ThreeLevelTable.of(table, type.equals("u8") ? 1 : 2);
+        if (Arrays.stream(layout.leaf()).max().orElse(0) > most) {
+            throw new IllegalStateException(name + " does not fit the statics it is written as");
+        }
+        int runLength = 1 << (layout.blockShift() - layout.pageShift());
+        docComment(out, what + " Held in three levels, as `Paged` says: blocks of " + (1 << layout.blockShift())
+                + " code points have a run of " + runLength + " page numbers (" + layout.middle().length / runLength
+                + " runs), pages of " + (1 << layout.pageShift()) + " code points hold the values ("
+                + layout.leaf().length / (1 << layout.pageShift()) + " pages), and a run and a page are held once"
+                + " however many blocks and runs have them. Read by `" + name + ".get(c)`.");
+        out.append("pub(crate) static ").append(name).append(": Paged<").append(layout.topType()).append(", ")
+                .append(layout.middleType()).append(", ").append(type).append(", ").append(layout.blockShift())
+                .append(", ").append(layout.pageShift()).append("> = Paged::new(&").append(name)
+                .append("_TOP, &").append(name).append("_MIDDLE, &").append(name).append("_LEAF);\n\n");
+        out.append("static ").append(name).append("_TOP: [").append(layout.topType()).append("; ")
+                .append(layout.top().length).append("] = [\n");
+        values(out, layout.top(), layout.topType().equals("u8") ? 2 : 4);
+        out.append("];\n\n");
+        out.append("static ").append(name).append("_MIDDLE: [").append(layout.middleType()).append("; ")
+                .append(layout.middle().length).append("] = [\n");
+        values(out, layout.middle(), layout.middleType().equals("u8") ? 2 : 4);
+        out.append("];\n\n");
+        out.append("static ").append(name).append("_LEAF: [").append(type).append("; ")
+                .append(layout.leaf().length).append("] = [\n");
+        values(out, layout.leaf(), type.equals("u8") ? 2 : 4);
         out.append("];\n\n");
     }
 

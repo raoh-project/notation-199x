@@ -2,11 +2,10 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::normalization_tables::{
-    CANONICAL, COMBINING_CLASS_BLOCKS, COMBINING_CLASS_PAGES, COMPATIBILITY, COMPOSITES,
-    COMPOSITION_CELLS, COMPOSITION_COLUMNS, COMPOSITION_FIRST_BLOCKS, COMPOSITION_FIRST_PAGES,
-    COMPOSITION_SECOND_BLOCKS, COMPOSITION_SECOND_PAGES, DECOMPOSITION_POSITION_BLOCKS,
-    DECOMPOSITION_POSITION_PAGES, LONGEST_DECOMPOSITION, MOST_MARKS_COMPOSED, NFC_TRIVIAL_LIMIT,
-    NFD_TRIVIAL_LIMIT, NFKC_TRIVIAL_LIMIT, NFKD_TRIVIAL_LIMIT, STABLE_BLOCKS, STABLE_PAGES,
+    CANONICAL, COMBINING_CLASS, COMPATIBILITY, COMPOSITES, COMPOSITION_CELLS, COMPOSITION_COLUMNS,
+    COMPOSITION_FIRST, COMPOSITION_SECOND, DECOMPOSITION_POSITION, LONGEST_DECOMPOSITION,
+    MOST_MARKS_COMPOSED, NFC_TRIVIAL_LIMIT, NFD_TRIVIAL_LIMIT, NFKC_TRIVIAL_LIMIT,
+    NFKD_TRIVIAL_LIMIT, STABLE,
 };
 
 /// The four normalization forms of UAX #15.
@@ -87,7 +86,7 @@ impl<const COMPAT: bool, const COMPOSE: bool> Normalizer<COMPAT, COMPOSE> {
         }
     }
 
-    /// The form's bit of [`STABLE_PAGES`].
+    /// The form's bit of [`STABLE`].
     const fn stable_bit() -> u8 {
         match (COMPAT, COMPOSE) {
             (false, true) => 1,
@@ -120,7 +119,7 @@ pub fn normalize(form: Form, text: &str) -> String {
 ///
 /// Text that is its own normalization is answered as it is. The text is read a code point at a time
 /// and kept as it is up to the first code point that is not a stable starter of the form: a starter
-/// whose quick check for the form is Yes ([`STABLE_PAGES`]). From the stable starter before that
+/// whose quick check for the form is Yes ([`STABLE`]). From the stable starter before that
 /// one, which what follows it may compose with, the algorithm is run up to the next stable starter,
 /// and the text is kept as it is again from there. A stable starter composes with nothing before it
 /// and blocks every mark after it from reaching a starter before it, so what comes before it is
@@ -257,10 +256,9 @@ pub(crate) fn scan_stop(text: &str, at: usize, left: usize, count: usize) -> usi
     }
 }
 
-/// Whether `c` is a stable starter of the form whose bit of [`STABLE_PAGES`] is `bit`.
+/// Whether `c` is a stable starter of the form whose bit of [`STABLE`] is `bit`.
 fn is_stable(bit: u8, c: char) -> bool {
-    let c = c as usize;
-    STABLE_PAGES[usize::from(STABLE_BLOCKS[c >> 8]) << 8 | c & 0xFF] & bit != 0
+    STABLE.get(c) & bit != 0
 }
 
 /// [`normalize_within`] worked out by the algorithm over the whole of `text`, whatever it is.
@@ -358,7 +356,7 @@ fn composes_back_into(c: char) -> bool {
     let c32 = u32::from(c);
     (V_BASE..V_BASE + V_COUNT).contains(&c32)
         || (T_BASE + 1..T_BASE + T_COUNT).contains(&c32)
-        || paged(&COMPOSITION_SECOND_BLOCKS, &COMPOSITION_SECOND_PAGES, c) != 0
+        || COMPOSITION_SECOND.get(c) != 0
 }
 
 /// One pass of canonical ordering and, where the form composes, composition over code points
@@ -564,19 +562,14 @@ const FEW_MARKS: usize = 32;
 
 /// Unicode's canonical combining class of `c`: 0 for a starter, and for a mark the class canonical
 /// ordering sorts it by. No Hangul jamo or syllable has one other than 0.
-const fn combining_class(c: char) -> u8 {
-    let c = c as usize;
-    COMBINING_CLASS_PAGES[(COMBINING_CLASS_BLOCKS[c >> 8] as usize) << 8 | c & 0xFF]
+fn combining_class(c: char) -> u8 {
+    COMBINING_CLASS.get(c)
 }
 
 /// `c`'s one-step decomposition by [`CANONICAL`], or where `COMPAT` by [`COMPATIBILITY`] as
-/// well, read where [`DECOMPOSITION_POSITION_PAGES`] says it is; `None` where it has none.
+/// well, read where [`DECOMPOSITION_POSITION`] says it is; `None` where it has none.
 fn decomposition_of<const COMPAT: bool>(c: char) -> Option<&'static [char]> {
-    let cp = c as usize;
-    let at = usize::from(
-        DECOMPOSITION_POSITION_PAGES
-            [usize::from(DECOMPOSITION_POSITION_BLOCKS[cp >> 8]) << 8 | cp & 0xFF],
-    );
+    let at = usize::from(DECOMPOSITION_POSITION.get(c));
     match at {
         0 => None,
         at if at <= CANONICAL.len() => Some(CANONICAL[at - 1].1),
@@ -646,16 +639,8 @@ fn compose(starter: char, c: char) -> Option<char> {
     {
         return Some(hangul(s + (c32 - T_BASE)));
     }
-    let row = usize::from(paged(
-        &COMPOSITION_FIRST_BLOCKS,
-        &COMPOSITION_FIRST_PAGES,
-        starter,
-    ));
-    let column = usize::from(paged(
-        &COMPOSITION_SECOND_BLOCKS,
-        &COMPOSITION_SECOND_PAGES,
-        c,
-    ));
+    let row = usize::from(COMPOSITION_FIRST.get(starter));
+    let column = usize::from(COMPOSITION_SECOND.get(c));
     if row == 0 || column == 0 {
         return None;
     }
@@ -663,12 +648,6 @@ fn compose(starter: char, c: char) -> Option<char> {
         0 => None,
         at => Some(COMPOSITES[usize::from(at) - 1]),
     }
-}
-
-/// `c`'s value in a table a code point indexes in two steps, its block's page and its place there.
-fn paged<T: Copy>(blocks: &[u8; 4352], pages: &[T], c: char) -> T {
-    let c = c as usize;
-    pages[usize::from(blocks[c >> 8]) << 8 | c & 0xFF]
 }
 
 #[cfg(test)]
@@ -986,7 +965,7 @@ mod tests {
             stated
         );
         for c in (0..0x110000).filter_map(char::from_u32) {
-            let column = paged(&COMPOSITION_SECOND_BLOCKS, &COMPOSITION_SECOND_PAGES, c);
+            let column = COMPOSITION_SECOND.get(c);
             assert_eq!(column != 0, seconds[c as usize], "{c:?}");
         }
     }
