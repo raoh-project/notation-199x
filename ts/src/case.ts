@@ -24,6 +24,9 @@ import { checkedBound, indexOf, scalarsIn, stop, valueAt, Written } from "./tabl
  *
  * A case mapping is not closed under any normalization form, so a caller that holds its text in one
  * normalizes the answer. `text` is well formed (see {@link illFormedAt}); this does not ask.
+ *
+ * A program that calls this and not {@link uppercase} carries the lowercase tables and not the
+ * uppercase ones.
  */
 export function lowercase(text: string): string {
   return mapped(text, LOWER, Number.POSITIVE_INFINITY)!;
@@ -32,7 +35,8 @@ export function lowercase(text: string): string {
 /**
  * `text` in uppercase, by the same untailored full mapping as {@link lowercase}: one code point can
  * widen to several, so `uppercase("straße")` is `"STRASSE"`, and no locale narrows it, so a Turkish
- * `i` still becomes `I`.
+ * `i` still becomes `I`. A program that calls this and not {@link lowercase} carries the uppercase
+ * tables and not the lowercase ones.
  */
 export function uppercase(text: string): string {
   return mapped(text, UPPER, Number.POSITIVE_INFINITY)!;

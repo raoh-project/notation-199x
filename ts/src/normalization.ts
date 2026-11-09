@@ -87,6 +87,10 @@ const FORMS: Readonly<Record<Form, FormFacts>> = { NFC, NFD, NFKC, NFKD };
  * {@link illFormedAt}); this does not ask, and half a surrogate pair handed in comes back out where it
  * was. A `form` that is none of the forms is a mistake in the calling program, and throws a
  * `TypeError`.
+ *
+ * The form is a value here, so a program that calls this carries the tables of every form. A
+ * program that names its form where it is written calls {@link normalizeNFC}, {@link normalizeNFD},
+ * {@link normalizeNFKC} or {@link normalizeNFKD}, which carry only the tables their form reads.
  */
 export function normalize(form: Form, text: string): string {
   return within(factsOf(form), text, Number.POSITIVE_INFINITY)!;
@@ -111,26 +115,36 @@ export function normalizeWithin(form: Form, text: string, longest: number): stri
   return within(factsOf(form), text, checkedBound(longest));
 }
 
-/** {@link normalize} in NFC, for a program that asks for no other form: it keeps the tables of NFC
- *  and not the compatibility mappings. */
+/**
+ * {@link normalize} in NFC, for a program that asks for no other form: a bundler keeps the tables NFC
+ * reads, the canonical decompositions and the compositions, and leaves out the compatibility
+ * mappings.
+ */
 export function normalizeNFC(text: string): string {
   return within(NFC, text, Number.POSITIVE_INFINITY)!;
 }
 
-/** {@link normalize} in NFD, for a program that asks for no other form: it keeps the tables of NFD
- *  and neither the compatibility mappings nor the compositions. */
+/**
+ * {@link normalize} in NFD, for a program that asks for no other form: a bundler keeps the
+ * canonical decompositions and leaves out the compatibility mappings and the compositions.
+ */
 export function normalizeNFD(text: string): string {
   return within(NFD, text, Number.POSITIVE_INFINITY)!;
 }
 
-/** {@link normalize} in NFKC, for a program that asks for no other form: it keeps the tables of NFKC
- *  and nothing of the forms that do not read them. */
+/**
+ * {@link normalize} in NFKC, for a program that asks for no other form: the canonical
+ * decompositions, the compatibility mappings and the compositions, which is every table
+ * normalization has.
+ */
 export function normalizeNFKC(text: string): string {
   return within(NFKC, text, Number.POSITIVE_INFINITY)!;
 }
 
-/** {@link normalize} in NFKD, for a program that asks for no other form: it keeps the tables of NFKD
- *  and not the compositions. */
+/**
+ * {@link normalize} in NFKD, for a program that asks for no other form: a bundler keeps the
+ * canonical decompositions and the compatibility mappings, and leaves out the compositions.
+ */
 export function normalizeNFKD(text: string): string {
   return within(NFKD, text, Number.POSITIVE_INFINITY)!;
 }

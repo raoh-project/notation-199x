@@ -16,6 +16,16 @@ the engine's Unicode support or its `Date`: `toLowerCase`, `normalize`, `RegExp`
 its own. The tables each rule reads are a module of their own, so a bundler leaves out those of the
 rules a program does not call.
 
+The tables are most of what a bundle holds, and which of them a bundle holds depends on how a
+program asks. `normalize(form, text)` and `normalizeWithin(form, text, longest)` take the form as a
+value, so a bundle that has either has the tables of all four forms. A program that knows its form
+calls `normalizeNFC`, `normalizeNFD`, `normalizeNFKC` or `normalizeNFKD`, or the same with `Within`,
+and a bundler leaves out the compatibility mappings where the form is canonical, and the
+compositions where it is NFD or NFKD. `lowercase` and `uppercase` each hold the tables of their own
+direction only. Minified by esbuild, a program of `normalizeNFC` is about 229 KB, one of
+`normalizeNFD` about 182 KB and one of `normalize(form, text)` about 264 KB; `lowercase` is about
+91 KB and `uppercase` about 43 KB.
+
 ## What it has
 
 Every rule is stated of text that is a sequence of Unicode scalar values. A JavaScript string can
