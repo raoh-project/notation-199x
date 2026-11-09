@@ -56,6 +56,13 @@ check() {
     else
         cargo build --release --quiet --features "$feature" --target-dir "$target"
     fi
+    # The symbols of the program are read, which a table that is expected absent does not show: the
+    # program has symbols of its own, and a program whose symbols nm cannot read has none.
+    if ! nm "$target/release/linked" | grep -q "linked"; then
+        echo "FAIL: nm reads no symbol of the program of '$feature'" >&2
+        failed=1
+        bad=1
+    fi
     for group in $groups; do
         eval "names=\$$group"
         for name in $names; do
