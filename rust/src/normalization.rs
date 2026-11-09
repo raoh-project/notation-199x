@@ -7,6 +7,7 @@ use crate::normalization_tables::{
     MOST_MARKS_COMPOSED, NFC_TRIVIAL_LIMIT, NFD_TRIVIAL_LIMIT, NFKC_TRIVIAL_LIMIT,
     NFKD_TRIVIAL_LIMIT, STABLE,
 };
+use crate::scan::kept_up_to;
 
 /// The four normalization forms of UAX #15.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -103,6 +104,10 @@ impl<const COMPAT: bool, const COMPOSE: bool> Normalizer<COMPAT, COMPOSE> {
 /// Hangul's arithmetic, put combining marks in canonical order, and in a composing form compose
 /// canonically wherever nothing blocks it. The compatibility forms decompose by the compatibility
 /// mappings as well as the canonical ones; composition is canonical in every form.
+///
+/// The form is a value here, so a statically linked program carries the tables of all four forms.
+/// A program that needs one form calls [`Nfc::normalize`], [`Nfd::normalize`], [`Nfkc::normalize`] or
+/// [`Nfkd::normalize`], and carries only what that form reaches.
 pub fn normalize(form: Form, text: &str) -> String {
     form.on(
         || Nfc::normalize(text),
@@ -135,7 +140,7 @@ pub fn normalize(form: Form, text: &str) -> String {
 /// composed with what follows it, so the text is read no further once those read and those before
 /// them are more than `longest`.
 ///
-/// The text is gone over a code point at a time in [`stable_up_to`] and in [`Composing::run`], each
+/// The text is gone over a code point at a time in [`kept_up_to`] and in [`Composing::run`], each
 /// code point once by each at most, and the marks of a run, which may be as many as the text has, in
 /// [`Composing::order`], [`Composing::settle`] and [`Composing::write`], a mark at a time; no other
 /// loop turns on the text. The loop of [`normalized`] goes once round for each run the algorithm
@@ -155,6 +160,8 @@ fn normalized<const BOUNDED: bool, const COMPAT: bool, const COMPOSE: bool>(
     text: &str,
     longest: usize,
 ) -> Option<String> {
+    let limit = Normalizer::<COMPAT, COMPOSE>::trivial_limit();
+    let bit = Normalizer::<COMPAT, COMPOSE>::stable_bit();
     // The answer up to `kept`, where a run has changed what it went over.
     let mut out: Option<String> = None;
     let mut kept = 0;
@@ -167,8 +174,10 @@ fn normalized<const BOUNDED: bool, const COMPAT: bool, const COMPOSE: bool>(
     let mut at = 0;
     while at < text.len() {
         // What is written and read is never more than `longest`, so this does not wrap.
-        let (stable, count, last) =
-            stable_up_to::<COMPAT, COMPOSE>(text, at, longest - before - read);
+        let (stable, count, last) = kept_up_to(text, at, longest - before - read, u128::MAX, |c| {
+            // Every form's trivial limit is past ASCII, so ASCII is all stable starters.
+            c < limit || is_stable(bit, c)
+        });
         if stable > at {
             read += count;
             if before + read > longest {
@@ -203,77 +212,6 @@ fn normalized<const BOUNDED: bool, const COMPAT: bool, const COMPOSE: bool>(
             out
         }
     })
-}
-
-/// Where the stable starters of `form` that `text` has from byte `at` end: the first code point from
-/// there that is not one, or the end of the text, or where it has gone past one more than `left` of
-/// them; how many it went past; and where the last of them begins, which is `at` where there are
-/// none.
-fn stable_up_to<const COMPAT: bool, const COMPOSE: bool>(
-    text: &str,
-    mut at: usize,
-    left: usize,
-) -> (usize, usize, usize) {
-    let limit = Normalizer::<COMPAT, COMPOSE>::trivial_limit();
-    let bit = Normalizer::<COMPAT, COMPOSE>::stable_bit();
-    let mut count = 0;
-    let mut last = at;
-    while at < text.len() && count <= left {
-        let bytes = &text.as_bytes()[..scan_stop(text, at, left, count)];
-        while at < bytes.len() {
-            // Every form's trivial limit is past ASCII, so a byte below 0x80 is a stable starter.
-            let run = ascii_run(&bytes[at..]);
-            if run > 0 {
-                at += run;
-                count += run;
-                last = at - 1;
-                if at == bytes.len() {
-                    break;
-                }
-            }
-            let c = text[at..]
-                .chars()
-                .next()
-                .expect("a byte that is not ASCII begins a character here");
-            if c >= limit && !is_stable(bit, c) {
-                return (at, count, last);
-            }
-            last = at;
-            at += c.len_utf8();
-            count += 1;
-        }
-    }
-    (at, count, last)
-}
-
-/// How many bytes `bytes` begins with that are below 0x80, which are as many code points: eight at a
-/// time while eight are left, and the rest one at a time.
-fn ascii_run(bytes: &[u8]) -> usize {
-    let mut at = 0;
-    for chunk in bytes.as_chunks::<8>().0 {
-        let word = u64::from_le_bytes(*chunk);
-        if word & 0x8080_8080_8080_8080 != 0 {
-            break;
-        }
-        at += 8;
-    }
-    at + bytes[at..]
-        .iter()
-        .position(|&byte| byte >= 0x80)
-        .unwrap_or(bytes.len() - at)
-}
-
-/// How far a scan of `text` from byte `at`, which may go past one more than `left` code points and
-/// has gone past `count`, can go without counting them: a code point is a byte or more, so up to
-/// there it goes past no more than that, and a code point past ASCII can leave it short, where the
-/// scan goes on from there. What is left is held against the bytes left before anything is added
-/// to `at`, so that no bound, however large, takes it past the end.
-pub(crate) fn scan_stop(text: &str, at: usize, left: usize, count: usize) -> usize {
-    if left - count >= text.len() - at {
-        text.len()
-    } else {
-        at + left - count + 1
-    }
 }
 
 /// Whether `c` is a stable starter of the form whose bit of [`STABLE`] is `bit`.
@@ -832,31 +770,6 @@ mod tests {
             normalize(Form::Nfc, &format!("{japanese}か\u{3099}{japanese}")),
             format!("{japanese}が{japanese}")
         );
-    }
-
-    /// A run of ASCII is as long as the bytes below 0x80 it begins with, wherever a byte past ASCII
-    /// comes and however long the run is.
-    #[test]
-    fn an_ascii_run_ends_at_the_first_byte_past_ascii() {
-        let mut seed = 7u64;
-        for length in 0..40 {
-            for _ in 0..200 {
-                let bytes: Vec<u8> = (0..length)
-                    .map(|_| {
-                        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
-                        let byte = (seed >> 33) as u8;
-                        // Mostly ASCII, so that runs are long and every place gets a first byte past it.
-                        if (seed >> 50).is_multiple_of(9) {
-                            byte | 0x80
-                        } else {
-                            byte & 0x7F
-                        }
-                    })
-                    .collect();
-                let expected = bytes.iter().position(|&b| b >= 0x80).unwrap_or(bytes.len());
-                assert_eq!(ascii_run(&bytes), expected, "{bytes:?}");
-            }
-        }
     }
 
     /// The compile-time forms answer what the form as a value answers, in whole, within a bound and

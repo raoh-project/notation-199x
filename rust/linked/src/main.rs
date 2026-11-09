@@ -10,6 +10,10 @@ fn main() {
     println!("{}", notation199x::Nfkc::normalize(&text));
     #[cfg(feature = "nfkd")]
     println!("{}", notation199x::Nfkd::normalize(&text));
+    #[cfg(feature = "lowercase")]
+    println!("{}", notation199x::lowercase(&text));
+    #[cfg(feature = "uppercase")]
+    println!("{}", notation199x::uppercase(&text));
     #[cfg(feature = "form")]
     {
         let form = match text.len() % 4 {
@@ -25,6 +29,8 @@ fn main() {
         feature = "nfd",
         feature = "nfkc",
         feature = "nfkd",
+        feature = "lowercase",
+        feature = "uppercase",
         feature = "form"
     )))]
     println!("{text}");

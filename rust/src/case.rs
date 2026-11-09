@@ -1,10 +1,10 @@
 use alloc::string::{String, ToString};
 
 use crate::case_tables::{
-    CASE_CONTEXT_BLOCKS, CASE_CONTEXT_PAGES, FINAL_SIGMA, LOWER, LOWER_POSITION_BLOCKS,
-    LOWER_POSITION_PAGES, UPPER, UPPER_POSITION_BLOCKS, UPPER_POSITION_PAGES,
+    CASE_CONTEXT, FINAL_SIGMA, LOWER, LOWER_ASCII, LOWER_POSITION, UPPER, UPPER_ASCII,
+    UPPER_POSITION,
 };
-use crate::normalization::scan_stop;
+use crate::scan::kept_up_to;
 use crate::tables::mapped;
 
 /// `text` in lowercase: Unicode 18.0.0's untailored full mapping, from `UnicodeData.txt` and
@@ -18,14 +18,14 @@ use crate::tables::mapped;
 /// A case mapping is not closed under any normalization form, so a caller that holds its text in
 /// one normalizes the answer.
 pub fn lowercase(text: &str) -> String {
-    map_case(text, true, usize::MAX).expect("no text is longer than usize::MAX scalar values")
+    map_case::<true>(text, usize::MAX).expect("no text is longer than usize::MAX scalar values")
 }
 
 /// `text` in uppercase, by the same untailored full mapping as [`lowercase`]: one code point can
 /// widen to several, so `uppercase("straße")` is `"STRASSE"`, and no locale narrows it, so a
 /// Turkish `i` still becomes `I`.
 pub fn uppercase(text: &str) -> String {
-    map_case(text, false, usize::MAX).expect("no text is longer than usize::MAX scalar values")
+    map_case::<false>(text, usize::MAX).expect("no text is longer than usize::MAX scalar values")
 }
 
 /// [`lowercase`] where that is no longer than `longest` scalar values, and `None` where it is
@@ -33,7 +33,7 @@ pub fn uppercase(text: &str) -> String {
 /// turns on `longest` and not on the length of `text`: it reads no further once what it has read
 /// shows the answer to be longer.
 pub fn lowercase_within(text: &str, longest: usize) -> Option<String> {
-    map_case(text, true, longest)
+    map_case::<true>(text, longest)
 }
 
 /// [`uppercase`] where that is no longer than `longest` scalar values, and `None` where it is
@@ -41,22 +41,25 @@ pub fn lowercase_within(text: &str, longest: usize) -> Option<String> {
 /// turns on `longest` and not on the length of `text`: it reads no further once what it has read
 /// shows the answer to be longer.
 pub fn uppercase_within(text: &str, longest: usize) -> Option<String> {
-    map_case(text, false, longest)
+    map_case::<false>(text, longest)
 }
 
 /// The mapped text, or `None` where it is longer than `longest`.
 ///
 /// Text that maps to itself is answered as it is. Otherwise what maps to itself is copied a run at
 /// a time, from `kept`, and the answer is made only once a code point that changes is met. Whether
-/// one does is read off [`LOWER_POSITION_PAGES`] or [`UPPER_POSITION_PAGES`], which answer where its
-/// mapping is as well, and for ASCII off [`ASCII`], read off the same tables.
+/// one does is read off [`LOWER_POSITION`] or [`UPPER_POSITION`], which answer where its mapping is as
+/// well, and for ASCII off [`LOWER_ASCII`] or [`UPPER_ASCII`].
+///
+/// The direction is `LOWER`, fixed when the program is compiled, so that a program that maps one way
+/// does not carry the tables of the other.
 ///
 /// `Final_Sigma` holds of a sigma with a `Cased` code point before it and none after it, each looked
 /// for past the `Case_Ignorable` code points between, in the text, by [`is_final_sigma`]. A sigma is
 /// not `Case_Ignorable`, so what one sigma looks past another does not, and the looking around all
 /// the sigmas of a text goes over each code point at most twice.
 ///
-/// The text is gone over a code point at a time in [`same_up_to`] and in this loop, each code point
+/// The text is gone over a code point at a time in [`kept_up_to`] and in this loop, each code point
 /// by one of them, and around a sigma in [`is_final_sigma`]; no other loop turns on the text.
 ///
 /// What is bounded is what is written: each code point's mapping is counted before any of it is
@@ -65,21 +68,24 @@ pub fn uppercase_within(text: &str, longest: usize) -> Option<String> {
 /// further than one code point past `longest` either: what maps to itself is gone past up to there,
 /// and [`is_final_sigma`] looks past no more `Case_Ignorable` code points after a sigma than the
 /// answer has room for.
-fn map_case(text: &str, lower: bool, longest: usize) -> Option<String> {
-    let (blocks, pages, mappings, ascii) = if lower {
-        (
-            &LOWER_POSITION_BLOCKS,
-            &LOWER_POSITION_PAGES[..],
-            LOWER,
-            &ASCII[0],
-        )
+fn map_case<const LOWER_CASE: bool>(text: &str, longest: usize) -> Option<String> {
+    let position = |c: char| {
+        if LOWER_CASE {
+            LOWER_POSITION.get(c)
+        } else {
+            UPPER_POSITION.get(c)
+        }
+    };
+    let mappings: &[(char, &[char])] = if LOWER_CASE { &LOWER } else { &UPPER };
+    let ascii = if LOWER_CASE {
+        &LOWER_ASCII
     } else {
-        (
-            &UPPER_POSITION_BLOCKS,
-            &UPPER_POSITION_PAGES[..],
-            UPPER,
-            &ASCII[1],
-        )
+        &UPPER_ASCII
+    };
+    let unchanged = if LOWER_CASE {
+        LOWER_UNCHANGED
+    } else {
+        UPPER_UNCHANGED
     };
     let bytes = text.as_bytes();
     // The answer up to `kept`, where a code point that changes has been met.
@@ -89,7 +95,8 @@ fn map_case(text: &str, lower: bool, longest: usize) -> Option<String> {
     let mut at = 0;
     while at < bytes.len() {
         // What is written is never more than `longest`, so this does not wrap.
-        let (same, count) = same_up_to(text, at, longest - written, ascii, blocks, pages);
+        let (same, count, _) =
+            kept_up_to(text, at, longest - written, unchanged, |c| position(c) == 0);
         written += count;
         if written > longest {
             return None;
@@ -125,15 +132,15 @@ fn map_case(text: &str, lower: bool, longest: usize) -> Option<String> {
             .next()
             .expect("same_up_to stops where a character begins");
         let after = at + c.len_utf8();
-        let mut mapping = mappings[usize::from(position(blocks, pages, c)) - 1].1;
-        if lower && has_context(c, FINAL_SIGMA_NAMED) {
+        let mut mapping = mappings[usize::from(position(c)) - 1].1;
+        if LOWER_CASE && has_context(c, FINAL_SIGMA_NAMED) {
             // The sigma is at least one scalar value of the answer, as every code point is, and
             // each `Case_Ignorable` one after it is another.
             if written == longest {
                 return None;
             }
             if is_final_sigma(text, at, after, longest - written - 1)? {
-                mapping = mapped(FINAL_SIGMA, c).expect("CASE_CONTEXT says FINAL_SIGMA names it");
+                mapping = mapped(&FINAL_SIGMA, c).expect("CASE_CONTEXT says FINAL_SIGMA names it");
             }
         }
         if mapping.len() > longest - written {
@@ -153,92 +160,20 @@ fn map_case(text: &str, lower: bool, longest: usize) -> Option<String> {
     })
 }
 
-/// Where the code points `text` has from byte `at` that the mapping leaves as they are end: the
-/// first one from there that it changes, or the end of the text, or where it has gone past one more
-/// than `left` of them; and how many it went past.
-fn same_up_to(
-    text: &str,
-    mut at: usize,
-    left: usize,
-    ascii: &[i16; 128],
-    blocks: &[u8; 4352],
-    pages: &[u16],
-) -> (usize, usize) {
-    let mut count = 0;
-    while at < text.len() && count <= left {
-        let bytes = &text.as_bytes()[..scan_stop(text, at, left, count)];
-        while at < bytes.len() {
-            let byte = bytes[at];
-            if byte < 0x80 {
-                if ascii[usize::from(byte)] != i16::from(byte) {
-                    return (at, count);
-                }
-                at += 1;
-                count += 1;
-                continue;
-            }
-            let c = text[at..]
-                .chars()
-                .next()
-                .expect("a byte that is not ASCII begins a character here");
-            if position(blocks, pages, c) != 0 {
-                return (at, count);
-            }
-            at += c.len_utf8();
-            count += 1;
-        }
-    }
-    (at, count)
-}
+/// The ASCII characters each mapping leaves as they are, a bit for each.
+const LOWER_UNCHANGED: u128 = unchanged(&LOWER_ASCII);
+const UPPER_UNCHANGED: u128 = unchanged(&UPPER_ASCII);
 
-/// `c`'s value in a position table: 0 where the mapping leaves it as it is, and otherwise one more
-/// than where its mapping is.
-const fn position(blocks: &[u8; 4352], pages: &[u16], c: char) -> u16 {
-    let c = c as usize;
-    pages[(blocks[c >> 8] as usize) << 8 | c & 0xFF]
-}
-
-/// For the lowercase and the uppercase mapping, what each ASCII character maps to where the mapping
-/// makes it one ASCII character and no `Final_Sigma` entry names it, and -1 where the tables are
-/// asked. Read off the tables when the crate is compiled, so that most text is mapped a byte at a
-/// time without a rule of its own about ASCII.
-static ASCII: [[i16; 128]; 2] = [
-    ascii_of(&LOWER_POSITION_BLOCKS, &LOWER_POSITION_PAGES, LOWER, true),
-    ascii_of(&UPPER_POSITION_BLOCKS, &UPPER_POSITION_PAGES, UPPER, false),
-];
-
-const fn ascii_of(
-    blocks: &[u8; 4352],
-    pages: &[u16],
-    mappings: &[(char, &[char])],
-    lower: bool,
-) -> [i16; 128] {
-    let mut out = [-1; 128];
+const fn unchanged(ascii: &[i16; 128]) -> u128 {
+    let mut bits = 0;
     let mut byte = 0;
     while byte < 128 {
-        let c = byte as u8 as char;
-        let at = position(blocks, pages, c);
-        let mut final_sigma = false;
-        let mut i = 0;
-        while lower && i < FINAL_SIGMA.len() {
-            if FINAL_SIGMA[i].0 as u32 == c as u32 {
-                final_sigma = true;
-            }
-            i += 1;
-        }
-        if !final_sigma {
-            if at == 0 {
-                out[byte] = byte as i16;
-            } else {
-                let mapping = mappings[at as usize - 1].1;
-                if mapping.len() == 1 && (mapping[0] as u32) < 0x80 {
-                    out[byte] = mapping[0] as i16;
-                }
-            }
+        if ascii[byte] == byte as i16 {
+            bits |= 1 << byte;
         }
         byte += 1;
     }
-    out
+    bits
 }
 
 /// Unicode's `Final_Sigma` condition of the code point between bytes `at` and `after`: preceded,
@@ -266,15 +201,14 @@ fn is_final_sigma(text: &str, at: usize, after: usize, most: usize) -> Option<bo
     Some(true)
 }
 
-// What [`CASE_CONTEXT_PAGES`] holds of a code point, a bit each.
+// What [`CASE_CONTEXT`] holds of a code point, a bit each.
 const CASED: u8 = 1;
 const CASE_IGNORABLE: u8 = 2;
 const FINAL_SIGMA_NAMED: u8 = 4;
 
-/// Whether [`CASE_CONTEXT_PAGES`] holds `bit` of `c`.
+/// Whether [`CASE_CONTEXT`] holds `bit` of `c`.
 fn has_context(c: char, bit: u8) -> bool {
-    let c = c as usize;
-    CASE_CONTEXT_PAGES[usize::from(CASE_CONTEXT_BLOCKS[c >> 8]) << 8 | c & 0xFF] & bit != 0
+    CASE_CONTEXT.get(c) & bit != 0
 }
 
 #[cfg(test)]
@@ -303,8 +237,8 @@ mod tests {
         let mut out = String::new();
         for (at, c) in text.iter().enumerate() {
             let final_form =
-                mapped(FINAL_SIGMA, *c).filter(|_| final_sigma_by_looking_around(text, at));
-            match final_form.or_else(|| mapped(LOWER, *c)) {
+                mapped(&FINAL_SIGMA, *c).filter(|_| final_sigma_by_looking_around(text, at));
+            match final_form.or_else(|| mapped(&LOWER, *c)) {
                 Some(mapping) => out.extend(mapping),
                 None => out.push(*c),
             }
@@ -321,9 +255,11 @@ mod tests {
     /// code point `FINAL_SIGMA` names is 0.
     #[test]
     fn a_position_table_answers_where_the_mapping_holds_what_changes() {
-        for (blocks, pages, mapping) in [
-            (&LOWER_POSITION_BLOCKS, &LOWER_POSITION_PAGES[..], LOWER),
-            (&UPPER_POSITION_BLOCKS, &UPPER_POSITION_PAGES[..], UPPER),
+        let lower = |c| LOWER_POSITION.get(c);
+        let upper = |c| UPPER_POSITION.get(c);
+        for (position, mapping) in [
+            (&lower as &dyn Fn(char) -> u16, &LOWER[..]),
+            (&upper, &UPPER[..]),
         ] {
             for c in (0..0x110000).filter_map(char::from_u32) {
                 let index = mapping.binary_search_by_key(&c, |&(from, _)| from);
@@ -331,15 +267,11 @@ mod tests {
                     Ok(at) if mapping[at].1 != [c] => at + 1,
                     _ => 0,
                 };
-                assert_eq!(usize::from(position(blocks, pages, c)), expected, "{c:?}");
+                assert_eq!(usize::from(position(c)), expected, "{c:?}");
             }
         }
-        for &(c, _) in FINAL_SIGMA {
-            assert_ne!(
-                position(&LOWER_POSITION_BLOCKS, &LOWER_POSITION_PAGES, c),
-                0,
-                "{c:?}"
-            );
+        for &(c, _) in &FINAL_SIGMA {
+            assert_ne!(LOWER_POSITION.get(c), 0, "{c:?}");
         }
     }
 
@@ -393,7 +325,7 @@ mod tests {
             );
             assert_eq!(
                 has_context(c, FINAL_SIGMA_NAMED),
-                mapped(FINAL_SIGMA, c).is_some(),
+                mapped(&FINAL_SIGMA, c).is_some(),
                 "{c:?}"
             );
         }

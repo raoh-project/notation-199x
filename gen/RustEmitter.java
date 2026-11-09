@@ -46,6 +46,7 @@ final class RustEmitter {
         StringBuilder out = header(model, "The default case conversion's tables: the untailored full mapping and"
                         + " the properties Final_Sigma is stated over",
                 List.of("UnicodeData.txt", "SpecialCasing.txt", "DerivedCoreProperties.txt"));
+        out.append("use crate::paged::Paged;\n\n");
         mapping(out, "LOWER", "The full lowercase mapping; a code point not here maps to itself",
                 casing.lower());
         mapping(out, "UPPER", "The full uppercase mapping; a code point not here maps to itself",
@@ -53,6 +54,8 @@ final class RustEmitter {
         mapping(out, "FINAL_SIGMA",
                 "The lowercase mapping that replaces `LOWER`'s at the end of a cased run (`Final_Sigma`)",
                 casing.finalSigma());
+        ascii(out, "LOWER_ASCII", "lowercase", casing.lower(), casing.finalSigma());
+        ascii(out, "UPPER_ASCII", "uppercase", casing.upper(), null);
         paged(out, "CASE_CONTEXT", "For each code point, a bit each for what `Final_Sigma` asks of it: 1 where it"
                 + " is `Cased`, 2 where it is `Case_Ignorable`, and 4 where `FINAL_SIGMA` names it.",
                 model.byCodePoint().caseContext(), "u8");
@@ -75,18 +78,18 @@ final class RustEmitter {
                 List.of("UnicodeData.txt", "CompositionExclusions.txt", "DerivedNormalizationProps.txt"));
         out.append("use crate::paged::Paged;\n\n");
         mapping(out, "CANONICAL", "The one-step canonical decomposition; a code point not here has none",
-                decomposition.canonical(), true);
+                decomposition.canonical());
         mapping(out, "COMPATIBILITY",
                 "The one-step compatibility decomposition, its `<tag>` dropped; a code point is in this,"
                         + " in `CANONICAL` or in neither",
-                decomposition.compatibility(), true);
+                decomposition.compatibility());
 
-        paged3(out, "DECOMPOSITION_POSITION", "For each code point, 0 where it has no decomposition, one more"
+        paged(out, "DECOMPOSITION_POSITION", "For each code point, 0 where it has no decomposition, one more"
                 + " than where it is in `CANONICAL` where it has a canonical one, and otherwise `CANONICAL.len()`"
                 + " and one more than where it is in `COMPATIBILITY`.", model.byCodePoint().decomposition(), "u16");
-        paged3(out, "COMBINING_CLASS", "Each code point's canonical combining class, 0 for a starter.",
+        paged(out, "COMBINING_CLASS", "Each code point's canonical combining class, 0 for a starter.",
                 model.byCodePoint().combiningClass(), "u8");
-        paged3(out, "STABLE", "For each code point, the forms it is a stable starter in, a bit each: NFC 1, NFD 2,"
+        paged(out, "STABLE", "For each code point, the forms it is a stable starter in, a bit each: NFC 1, NFD 2,"
                 + " NFKC 4 and NFKD 8. A stable starter is a starter whose quick check for the form is Yes. Text"
                 + " made only of them is its own normalization in the form, and one of them ends what comes"
                 + " before it: no mark after it is put in order before it or composes with a starter before it,"
@@ -94,9 +97,9 @@ final class RustEmitter {
                 + " checks.", model.byCodePoint().stableStarters(), "u8");
 
         UcdModel.Composing composing = model.byCodePoint().composing();
-        paged3(out, "COMPOSITION_FIRST", "For each code point, 0 where it is the first member of no primary"
+        paged(out, "COMPOSITION_FIRST", "For each code point, 0 where it is the first member of no primary"
                 + " composite, and otherwise one more than its row of `COMPOSITION_ROWS`.", composing.firsts(), "u16");
-        paged3(out, "COMPOSITION_SECOND", "For each code point, 0 where it is the second member of no primary"
+        paged(out, "COMPOSITION_SECOND", "For each code point, 0 where it is the second member of no primary"
                 + " composite, and otherwise its column of `COMPOSITION_PAIRS`, counted from 1. A starter before a"
                 + " code point may compose with it by the table where and only where this is not 0.",
                 composing.seconds(), "u8");
@@ -200,19 +203,12 @@ final class RustEmitter {
         return out;
     }
 
+    /** {@code mapping} as an array, which leaves a symbol of its name in a program that links it, and a
+     *  reference to one does not. */
     private static void mapping(StringBuilder out, String name, String what, UcdModel.CodePointMapping mapping) {
-        mapping(out, name, what, mapping, false);
-    }
-
-    /** {@code named} where the table is an array and not a reference to one, so that a program that does
-     *  not use it is found not to hold it by the symbol of {@code name}, which a reference to an array
-     *  does not leave. */
-    private static void mapping(StringBuilder out, String name, String what, UcdModel.CodePointMapping mapping,
-                                boolean named) {
         out.append("/// ").append(what).append(" (").append(mapping.entries().size()).append(" code points).\n");
-        out.append("pub(crate) static ").append(name).append(named
-                ? ": [(char, &[char]); " + mapping.entries().size() + "] = [\n"
-                : ": &[(char, &[char])] = &[\n");
+        out.append("pub(crate) static ").append(name).append(": [(char, &[char]); ")
+                .append(mapping.entries().size()).append("] = [\n");
         mapping.entries().forEach((cp, mapped) -> {
             out.append("    (").append(code(cp)).append(", &[");
             for (int i = 0; i < mapped.length; i++) {
@@ -220,6 +216,33 @@ final class RustEmitter {
             }
             out.append("]),\n");
         });
+        out.append("];\n\n");
+    }
+
+    /**
+     * What each ASCII character becomes under {@code mapping}, where that is one ASCII character and
+     * {@code exceptions} does not name it, and -1 where the tables have to be asked: a program that
+     * maps text a byte at a time asks them for what is not ASCII and for these.
+     */
+    private static void ascii(StringBuilder out, String name, String what, UcdModel.CodePointMapping mapping,
+                              UcdModel.CodePointMapping exceptions) {
+        int[] mapped = new int[128];
+        for (int c = 0; c < 128; c++) {
+            int[] to = mapping.entries().get(c);
+            mapped[c] = exceptions != null && exceptions.entries().containsKey(c) ? -1
+                    : to == null ? c
+                    : to.length == 1 && to[0] < 128 ? to[0] : -1;
+        }
+        docComment(out, "What each ASCII character becomes in " + what + ", where that is one ASCII character"
+                + " and `FINAL_SIGMA` does not name it, and -1 where the tables are asked.");
+        out.append("pub(crate) static ").append(name).append(": [i16; 128] = [\n");
+        for (int i = 0; i < 128; i += 16) {
+            out.append("    ");
+            for (int j = i; j < i + 16; j++) {
+                out.append(j > i ? " " : "").append(String.format("%4d,", mapped[j]));
+            }
+            out.append('\n');
+        }
         out.append("];\n\n");
     }
 
@@ -233,38 +256,12 @@ final class RustEmitter {
     }
 
     /**
-     * {@code table} as two statics, {@code <NAME>_BLOCKS} and {@code <NAME>_PAGES}, the pages'
-     * values of type {@code type}: the value of {@code c} is at
-     * {@code <NAME>_PAGES[usize::from(<NAME>_BLOCKS[c as usize >> 8]) << 8 | c as usize & 0xFF]}.
-     */
-    private static void paged(StringBuilder out, String name, String what, PagedTable table, String type) {
-        long most = type.equals("u8") ? 0xFF : 0xFFFF;
-        if (table.pages().size() > 0x100 || table.greatest() > most) {
-            throw new IllegalStateException(name + " does not fit the statics it is written as");
-        }
-        docComment(out, what + " The value of `c` is at `" + name + "_PAGES[usize::from(" + name + "_BLOCKS[c as usize >> "
-                + PagedTable.SHIFT + "]) << " + PagedTable.SHIFT + " | c as usize & 0x"
-                + UcdModel.hex(PagedTable.PAGE - 1) + "]`: each block of " + PagedTable.PAGE + " code points has"
-                + " the page of its values, and blocks that hold the same values share one ("
-                + table.pages().size() + " pages).");
-        out.append("pub(crate) static ").append(name).append("_BLOCKS: [u8; ").append(table.blocks().length)
-                .append("] = [\n");
-        values(out, table.blocks(), 2);
-        out.append("];\n\n");
-        int[] values = table.values();
-        out.append("pub(crate) static ").append(name).append("_PAGES: [").append(type).append("; ")
-                .append(values.length).append("] = [\n");
-        values(out, values, type.equals("u8") ? 2 : 4);
-        out.append("];\n\n");
-    }
-
-    /**
-     * {@code table} laid out in three levels, as three statics {@code <NAME>_TOP}, {@code <NAME>_MIDDLE}
+     * {@code table} in three levels, as three statics {@code <NAME>_TOP}, {@code <NAME>_MIDDLE}
      * and {@code <NAME>_LEAF} and a {@code Paged} over them named {@code <NAME>}, read by
      * {@code <NAME>.get(c)}. The sizes of a block and a page are those that take the fewest bytes for
      * this table, and are the {@code Paged}'s type parameters.
      */
-    private static void paged3(StringBuilder out, String name, String what, PagedTable table, String type) {
+    private static void paged(StringBuilder out, String name, String what, PagedTable table, String type) {
         long most = type.equals("u8") ? 0xFF : 0xFFFF;
         ThreeLevelTable layout = ThreeLevelTable.of(table, type.equals("u8") ? 1 : 2);
         if (Arrays.stream(layout.leaf()).max().orElse(0) > most) {

@@ -16,6 +16,8 @@ nfc = []
 nfd = []
 nfkc = []
 nfkd = []
+lowercase = []
+uppercase = []
 # The form chosen by a value, as `normalize` takes it.
 form = []
 
