@@ -44,6 +44,15 @@ func TestAProgramCarriesOnlyTheTablesItAsksFor(t *testing.T) {
 			t.Skip("there is no go to build the programs with")
 		}
 	}
+	// Every go the test runs is run as the others are, in a module of its own and not in a workspace
+	// that holds the library or in what the caller's GOFLAGS say: a workspace of two modules makes
+	// go list -m answer both, and the module this builds is the one the temporary go.mod names.
+	goIn := func(dir string, args ...string) *exec.Cmd {
+		command := exec.Command(goTool, args...)
+		command.Dir = dir
+		command.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=-mod=mod")
+		return command
+	}
 	module, err := filepath.Abs(".")
 	if err != nil {
 		t.Fatal(err)
@@ -52,9 +61,7 @@ func TestAProgramCarriesOnlyTheTablesItAsksFor(t *testing.T) {
 	// the symbols of what they carry are named by. A name written out here would be one go.mod can
 	// leave behind, and go builds a program that replaces a module by one of another name, so the
 	// test would go on passing on a module that is not this one.
-	list := exec.Command(goTool, "list", "-m")
-	list.Dir = module
-	listed, err := list.Output()
+	listed, err := goIn(module, "list", "-m").Output()
 	if err != nil {
 		t.Fatalf("go list -m: %v", err)
 	}
@@ -76,9 +83,7 @@ func TestAProgramCarriesOnlyTheTablesItAsksFor(t *testing.T) {
 	// argument and not as text of its own syntax, so that no path of the library's is one it cannot
 	// read.
 	write("go.mod", "module linked\n\ngo 1.23\n")
-	edit := exec.Command(goTool, "mod", "edit", "-require="+modulePath+"@v0.0.0",
-		"-replace="+modulePath+"="+module)
-	edit.Dir = dir
+	edit := goIn(dir, "mod", "edit", "-require="+modulePath+"@v0.0.0", "-replace="+modulePath+"="+module)
 	if out, err := edit.CombinedOutput(); err != nil {
 		t.Fatalf("go mod edit: %v\n%s", err, out)
 	}
@@ -119,13 +124,11 @@ func main() {
 }
 `, modulePath, each.call))
 			program := filepath.Join(dir, name+".bin")
-			build := exec.Command(goTool, "build", "-o", program, "./"+name)
-			build.Dir = dir
-			build.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=-mod=mod")
+			build := goIn(dir, "build", "-o", program, "./"+name)
 			if out, err := build.CombinedOutput(); err != nil {
 				t.Fatalf("go build: %v\n%s", err, out)
 			}
-			nm, err := exec.Command(goTool, "tool", "nm", program).Output()
+			nm, err := goIn(dir, "tool", "nm", program).Output()
 			if err != nil {
 				t.Fatalf("go tool nm: %v", err)
 			}
