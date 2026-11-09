@@ -5,11 +5,10 @@ import {
   COMBINING_CLASS_BLOCKS,
   COMBINING_CLASS_PAGES,
   COMPATIBILITY_TO,
-  COMPOSITES,
-  COMPOSITION_CELLS,
-  COMPOSITION_COLUMNS,
   COMPOSITION_FIRST_BLOCKS,
   COMPOSITION_FIRST_PAGES,
+  COMPOSITION_PAIRS,
+  COMPOSITION_ROWS,
   COMPOSITION_SECOND_BLOCKS,
   COMPOSITION_SECOND_PAGES,
   DECOMPOSITION_POSITION_BLOCKS,
@@ -499,8 +498,8 @@ function combiningClass(cp: number): number {
 
 /**
  * The primary composite of `starter` followed by `cp`, or -1 where the pair does not compose:
- * Hangul's arithmetic L+V and LV+T composition, or COMPOSITION_CELLS at the row of `starter` and the
- * column of `cp`.
+ * Hangul's arithmetic L+V and LV+T composition, or the pair of COMPOSITION_PAIRS in the row of
+ * `starter` that has the column of `cp`.
  */
 function compose(starter: number, cp: number): number {
   if (starter >= L_BASE && starter < L_BASE + L_COUNT && cp >= V_BASE && cp < V_BASE + V_COUNT) {
@@ -514,6 +513,15 @@ function compose(starter: number, cp: number): number {
   if (row === 0 || column === 0) {
     return -1;
   }
-  const at = COMPOSITION_CELLS.charCodeAt((row - 1) * COMPOSITION_COLUMNS + column - 1);
-  return at === 0 ? -1 : COMPOSITES[at - 1]!;
+  // A row has at most 19 pairs, in order of column, which a scan from its start finds faster than a
+  // halving does.
+  const end = COMPOSITION_ROWS.charCodeAt(row);
+  for (let at = COMPOSITION_ROWS.charCodeAt(row - 1); at < end; at++) {
+    const pair = COMPOSITION_PAIRS[at]!;
+    const found = pair & 0xFF;
+    if (found >= column) {
+      return found === column ? pair >> 8 : -1;
+    }
+  }
+  return -1;
 }

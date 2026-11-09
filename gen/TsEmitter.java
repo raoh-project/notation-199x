@@ -90,20 +90,19 @@ final class TsEmitter {
                 + " checks.", model.byCodePoint().stableStarters());
         UcdModel.Composing composing = model.byCodePoint().composing();
         paged(out, "COMPOSITION_FIRST", "For each code point, 0 where it is the first member of no primary"
-                + " composite, and otherwise one more than its row of `COMPOSITION_CELLS`.", composing.firsts());
+                + " composite, and otherwise one more than its row of `COMPOSITION_PAIRS`.", composing.firsts());
         paged(out, "COMPOSITION_SECOND", "For each code point, 0 where it is the second member of no primary"
-                + " composite, and otherwise one more than its column of `COMPOSITION_CELLS`. A starter before a"
-                + " code point may compose with it by the table where and only where this is not 0.",
-                composing.seconds());
-        docComment(out, "How many second members there are, the length of a row of `COMPOSITION_CELLS`.");
-        out.append("export const COMPOSITION_COLUMNS = ").append(composing.columns()).append(";\n\n");
-        docComment(out, "At `row * COMPOSITION_COLUMNS + column`, the code unit 0 where the pair does not compose,"
-                + " and otherwise one more than where the composite is in `COMPOSITES`. Hangul's, which are"
-                + " arithmetic, are not here.");
-        out.append("export const COMPOSITION_CELLS = ").append(units(composing.cells())).append(";\n\n");
-        docComment(out, "The primary composites, in order of code point.");
-        out.append("export const COMPOSITES: readonly number[] = [\n");
-        codes(out, composing.composites());
+                + " composite, and otherwise its column, counted from 1. A starter before a code point may"
+                + " compose with it by the table where and only where this is not 0.", composing.seconds());
+        docComment(out, "Where each row of `COMPOSITION_PAIRS` begins, by the row number less 1, and"
+                + " `COMPOSITION_PAIRS.length` after the last one: the pairs of a row are those from where it"
+                + " begins to where the next row does.");
+        out.append("export const COMPOSITION_ROWS = ").append(units(composing.rowStarts())).append(";\n\n");
+        docComment(out, "The pairs that compose, a row at a time and in order of column within a row, each the"
+                + " composite's code point shifted left by 8 and the column of the second member, counted from 1"
+                + " as `COMPOSITION_SECOND` counts it. Hangul's, which are arithmetic, are not here.");
+        out.append("export const COMPOSITION_PAIRS: readonly number[] = [\n");
+        numbers(out, composing.pairs());
         out.append("];\n\n");
         for (String form : UcdModel.FORMS) {
             docComment(out, "The least code point that is not a starter or whose quick check for " + form
@@ -265,10 +264,18 @@ final class TsEmitter {
 
     /** {@code cps} as hex literals, eight to a line. */
     private static void codes(StringBuilder out, int[] cps) {
-        for (int i = 0; i < cps.length; i += 8) {
+        for (int cp : cps) {
+            code(cp);
+        }
+        numbers(out, cps);
+    }
+
+    /** {@code values} as hex literals of at least four digits, eight to a line. */
+    private static void numbers(StringBuilder out, int[] values) {
+        for (int i = 0; i < values.length; i += 8) {
             out.append(" ");
-            for (int j = i; j < Math.min(i + 8, cps.length); j++) {
-                out.append(' ').append(code(cps[j])).append(',');
+            for (int j = i; j < Math.min(i + 8, values.length); j++) {
+                out.append(String.format(" 0x%04X,", values[j]));
             }
             out.append('\n');
         }
