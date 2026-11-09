@@ -182,7 +182,7 @@ final class NormalizationTest extends TestCase
 
     /**
      * A stable starter of a form is a code point whose combining class is 0 and whose quick check
-     * for the form is Yes, as UnicodeData.txt and DerivedNormalizationProps.txt state them: the
+     * for the form is Yes, and a code point's combining class is the one the database gives it, as UnicodeData.txt and DerivedNormalizationProps.txt state them: the
      * generated table is held to a reading of the database of this test's own.
      */
     public function testAStableStarterIsAStarterWhoseQuickCheckIsYes(): void
@@ -191,7 +191,7 @@ final class NormalizationTest extends TestCase
         foreach (explode("\n", Repository::read('ucd/18.0.0/UnicodeData.txt')) as $line) {
             $f = explode(';', $line);
             if (count($f) > 3 && $f[3] !== '0') {
-                $marks[(int) hexdec($f[0])] = true;
+                $marks[(int) hexdec($f[0])] = (int) $f[3];
             }
         }
         $notYes = ['NFC' => [], 'NFD' => [], 'NFKC' => [], 'NFKD' => []];
@@ -208,6 +208,11 @@ final class NormalizationTest extends TestCase
             }
         }
         $wrong = [];
+        for ($cp = 0; $cp <= 0x10FFFF; $cp++) {
+            if ((NormalizationTables::COMBINING_CLASSES[Utf8::encode($cp)] ?? 0) !== ($marks[$cp] ?? 0) && count($wrong) < 20) {
+                $wrong[] = sprintf('class of U+%04X', $cp);
+            }
+        }
         foreach (['NFC' => 1, 'NFD' => 2, 'NFKC' => 4, 'NFKD' => 8] as $form => $bit) {
             self::assertNotSame([], $notYes[$form], "$form's quick check was read");
             for ($cp = 0; $cp <= 0x10FFFF; $cp++) {

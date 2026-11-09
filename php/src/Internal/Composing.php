@@ -12,7 +12,7 @@ namespace Raoh\Notation199x\Internal;
  *
  * With a bound, what is written and the least of the answer what is held can come to are no more
  * than the bound, which take() holds to before it holds another mark: the starter, and the marks
- * but those it may compose with, which are no more than NormalizationTables::MOST_MARKS_COMPOSED.
+ * but those it may compose with, which are no more than CompositionTables::MOST_MARKS_COMPOSED.
  * So a run holds no more than the bound and that many marks, whatever the length of the text.
  *
  * @internal
@@ -154,7 +154,7 @@ final class Composing
             }
         }
         $mapped = NormalizationTables::CANONICAL[$character]
-            ?? ($compatibility ? NormalizationTables::COMPATIBILITY[$character] ?? null : null);
+            ?? ($compatibility ? CompatibilityTables::COMPATIBILITY[$character] ?? null : null);
         if ($mapped === null) {
             return null;
         }
@@ -212,7 +212,7 @@ final class Composing
         if ($this->starter === null) {
             return $marks;
         }
-        return 1 + ($this->form->composes ? max($marks - NormalizationTables::MOST_MARKS_COMPOSED, 0) : $marks);
+        return 1 + ($this->form->composes ? max($marks - CompositionTables::MOST_MARKS_COMPOSED, 0) : $marks);
     }
 
     /**
@@ -339,6 +339,6 @@ final class Composing
                 return Utf8::encode($s + ($c - self::T_BASE));
             }
         }
-        return NormalizationTables::COMPOSITIONS[$starter . $character] ?? null;
+        return CompositionTables::COMPOSITIONS[$starter . $character] ?? null;
     }
 }
