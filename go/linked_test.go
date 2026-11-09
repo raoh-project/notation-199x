@@ -10,9 +10,6 @@ import (
 	"testing"
 )
 
-// modulePath is this module's path, which the programs the test builds import.
-const modulePath = "github.com/raoh-project/199x-notation/go"
-
 // tableGroups is the symbols of the tables each part of the algorithm reads, by group.
 var tableGroups = []struct {
 	name    string
@@ -50,6 +47,20 @@ func TestAProgramCarriesOnlyTheTablesItAsksFor(t *testing.T) {
 	module, err := filepath.Abs(".")
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The path of this module is what its go.mod says, which the programs the test builds import and
+	// the symbols of what they carry are named by. A name written out here would be one go.mod can
+	// leave behind, and go builds a program that replaces a module by one of another name, so the
+	// test would go on passing on a module that is not this one.
+	list := exec.Command(goTool, "list", "-m")
+	list.Dir = module
+	listed, err := list.Output()
+	if err != nil {
+		t.Fatalf("go list -m: %v", err)
+	}
+	modulePath := strings.TrimSpace(string(listed))
+	if modulePath == "" || strings.ContainsAny(modulePath, " \n") {
+		t.Fatalf("go list -m answers %q, which is not a module path", listed)
 	}
 	dir := t.TempDir()
 	write := func(name, text string) {
