@@ -4,7 +4,7 @@ use crate::case_tables::{
     CASE_CONTEXT, FINAL_SIGMA, LOWER, LOWER_ASCII, LOWER_POSITION, UPPER, UPPER_ASCII,
     UPPER_POSITION,
 };
-use crate::scan::kept_up_to;
+use crate::scan::{KeptAscii, Scanned, kept_up_to};
 use crate::tables::mapped;
 
 /// `text` in lowercase: Unicode 18.0.0's untailored full mapping, from `UnicodeData.txt` and
@@ -83,9 +83,9 @@ fn map_case<const LOWER_CASE: bool>(text: &str, longest: usize) -> Option<String
         &UPPER_ASCII
     };
     let unchanged = if LOWER_CASE {
-        LOWER_UNCHANGED
+        &LOWER_UNCHANGED
     } else {
-        UPPER_UNCHANGED
+        &UPPER_UNCHANGED
     };
     let bytes = text.as_bytes();
     // The answer up to `kept`, where a code point that changes has been met.
@@ -95,8 +95,14 @@ fn map_case<const LOWER_CASE: bool>(text: &str, longest: usize) -> Option<String
     let mut at = 0;
     while at < bytes.len() {
         // What is written is never more than `longest`, so this does not wrap.
-        let (same, count, _) =
-            kept_up_to(text, at, longest - written, unchanged, |c| position(c) == 0);
+        let Scanned {
+            end: same,
+            count,
+            stopper,
+            ..
+        } = kept_up_to(text, at, longest - written, unchanged, |c| {
+            Some(position(c)).filter(|&at| at != 0)
+        });
         written += count;
         if written > longest {
             return None;
@@ -130,9 +136,11 @@ fn map_case<const LOWER_CASE: bool>(text: &str, longest: usize) -> Option<String
         let c = text[at..]
             .chars()
             .next()
-            .expect("same_up_to stops where a character begins");
+            .expect("kept_up_to stops where a character begins");
         let after = at + c.len_utf8();
-        let mut mapping = mappings[usize::from(position(c)) - 1].1;
+        // Where the scan stopped at a code point past ASCII it has asked the position already.
+        let place = stopper.unwrap_or_else(|| position(c));
+        let mut mapping = mappings[usize::from(place) - 1].1;
         if LOWER_CASE && has_context(c, FINAL_SIGMA_NAMED) {
             // The sigma is at least one scalar value of the answer, as every code point is, and
             // each `Case_Ignorable` one after it is another.
@@ -160,20 +168,18 @@ fn map_case<const LOWER_CASE: bool>(text: &str, longest: usize) -> Option<String
     })
 }
 
-/// The ASCII characters each mapping leaves as they are, a bit for each.
-const LOWER_UNCHANGED: u128 = unchanged(&LOWER_ASCII);
-const UPPER_UNCHANGED: u128 = unchanged(&UPPER_ASCII);
+/// The ASCII characters each mapping leaves as they are.
+const LOWER_UNCHANGED: KeptAscii = KeptAscii::of(unchanged(&LOWER_ASCII));
+const UPPER_UNCHANGED: KeptAscii = KeptAscii::of(unchanged(&UPPER_ASCII));
 
-const fn unchanged(ascii: &[i16; 128]) -> u128 {
-    let mut bits = 0;
+const fn unchanged(ascii: &[i16; 128]) -> [bool; 128] {
+    let mut kept = [false; 128];
     let mut byte = 0;
     while byte < 128 {
-        if ascii[byte] == byte as i16 {
-            bits |= 1 << byte;
-        }
+        kept[byte] = ascii[byte] == byte as i16;
         byte += 1;
     }
-    bits
+    kept
 }
 
 /// Unicode's `Final_Sigma` condition of the code point between bytes `at` and `after`: preceded,

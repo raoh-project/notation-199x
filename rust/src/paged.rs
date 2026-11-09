@@ -36,3 +36,25 @@ where
         self.leaf[page << PAGE | c & ((1 << PAGE) - 1)]
     }
 }
+
+/// A value for every code point, held in two levels: a code point's block, of 256 code points, has
+/// the page that holds its values, and blocks that hold the same values share one page. One
+/// dependent load fewer than [`Paged`], for a table a scan reads once for each code point and does
+/// nothing else with.
+pub(crate) struct Paged2<V: 'static> {
+    blocks: &'static [u8; 4352],
+    pages: &'static [V],
+}
+
+impl<V: Copy> Paged2<V> {
+    pub(crate) const fn new(blocks: &'static [u8; 4352], pages: &'static [V]) -> Paged2<V> {
+        Paged2 { blocks, pages }
+    }
+
+    /// The value of `c`.
+    #[inline]
+    pub(crate) fn get(&self, c: char) -> V {
+        let c = c as usize;
+        self.pages[usize::from(self.blocks[c >> 8]) << 8 | c & 0xFF]
+    }
+}

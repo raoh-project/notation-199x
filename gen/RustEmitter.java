@@ -46,7 +46,7 @@ final class RustEmitter {
         StringBuilder out = header(model, "The default case conversion's tables: the untailored full mapping and"
                         + " the properties Final_Sigma is stated over",
                 List.of("UnicodeData.txt", "SpecialCasing.txt", "DerivedCoreProperties.txt"));
-        out.append("use crate::paged::Paged;\n\n");
+        out.append("use crate::paged::{Paged, Paged2};\n\n");
         mapping(out, "LOWER", "The full lowercase mapping; a code point not here maps to itself",
                 casing.lower());
         mapping(out, "UPPER", "The full uppercase mapping; a code point not here maps to itself",
@@ -59,10 +59,10 @@ final class RustEmitter {
         paged(out, "CASE_CONTEXT", "For each code point, a bit each for what `Final_Sigma` asks of it: 1 where it"
                 + " is `Cased`, 2 where it is `Case_Ignorable`, and 4 where `FINAL_SIGMA` names it.",
                 model.byCodePoint().caseContext(), "u8");
-        paged(out, "LOWER_POSITION", "For each code point, 0 where `LOWER` maps it to itself, and otherwise one"
+        pagedInTwoLevels(out, "LOWER_POSITION", "For each code point, 0 where `LOWER` maps it to itself, and otherwise one"
                 + " more than where it is in `LOWER`. No code point `FINAL_SIGMA` names is 0.",
                 model.byCodePoint().lower(), "u16");
-        paged(out, "UPPER_POSITION", "For each code point, 0 where `UPPER` maps it to itself, and otherwise one"
+        pagedInTwoLevels(out, "UPPER_POSITION", "For each code point, 0 where `UPPER` maps it to itself, and otherwise one"
                 + " more than where it is in `UPPER`.", model.byCodePoint().upper(), "u16");
         return out.toString();
     }
@@ -229,6 +229,34 @@ final class RustEmitter {
         for (int[] r : ranges.ranges()) {
             out.append("    (").append(code(r[0])).append(", ").append(code(r[1])).append("),\n");
         }
+        out.append("];\n\n");
+    }
+
+    /**
+     * {@code table} in two levels, as two statics {@code <NAME>_BLOCKS} and {@code <NAME>_PAGES} and a
+     * {@code Paged2} over them named {@code <NAME>}, read by {@code <NAME>.get(c)}. A table is held so
+     * where a scan reads it once for each code point and does nothing else with it, so that the
+     * lookup is the whole of the work a code point costs and a third dependent load would show: the
+     * position tables of case conversion. Every other table is {@link #paged}.
+     */
+    private static void pagedInTwoLevels(StringBuilder out, String name, String what, PagedTable table,
+                                         String type) {
+        long most = type.equals("u8") ? 0xFF : 0xFFFF;
+        if (table.pages().size() > 0x100 || table.greatest() > most) {
+            throw new IllegalStateException(name + " does not fit the statics it is written as");
+        }
+        docComment(out, what + " Held in two levels, as `Paged2` says: each block of " + PagedTable.PAGE
+                + " code points has the page of its values, and blocks that hold the same values share one ("
+                + table.pages().size() + " pages). Read by `" + name + ".get(c)`.");
+        out.append("pub(crate) static ").append(name).append(": Paged2<").append(type).append("> = Paged2::new(&")
+                .append(name).append("_BLOCKS, &").append(name).append("_PAGES);\n\n");
+        out.append("static ").append(name).append("_BLOCKS: [u8; ").append(table.blocks().length).append("] = [\n");
+        values(out, table.blocks(), 2);
+        out.append("];\n\n");
+        int[] values = table.values();
+        out.append("static ").append(name).append("_PAGES: [").append(type).append("; ").append(values.length)
+                .append("] = [\n");
+        values(out, values, type.equals("u8") ? 2 : 4);
         out.append("];\n\n");
     }
 

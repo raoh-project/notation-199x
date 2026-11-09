@@ -1,52 +1,114 @@
 //! The scan that normalization and case conversion both begin with: going over the part of a text
 //! a rule leaves as it is.
 
+/// The ASCII characters a rule keeps.
+pub(crate) struct KeptAscii {
+    /// Whether the rule keeps all of ASCII, which a scan can tell of a run by its bytes alone.
+    all: bool,
+    table: [bool; 128],
+}
+
+impl KeptAscii {
+    /// The rule that keeps all of ASCII.
+    pub(crate) const ALL: KeptAscii = KeptAscii {
+        all: true,
+        table: [true; 128],
+    };
+
+    /// The rule that keeps the ASCII characters `table` is true of.
+    pub(crate) const fn of(table: [bool; 128]) -> KeptAscii {
+        KeptAscii { all: false, table }
+    }
+
+    /// Whether the rule keeps the ASCII character `byte`.
+    fn keeps(&self, byte: u8) -> bool {
+        byte < 0x80 && self.table[usize::from(byte)]
+    }
+}
+
+/// What a scan went over: where it ended, how many code points it went past, where the last of them
+/// begins, which is where the scan began where there are none, and what the rule said of the code
+/// point past ASCII that it stopped at, where it stopped at one.
+pub(crate) struct Scanned<T> {
+    pub(crate) end: usize,
+    pub(crate) count: usize,
+    pub(crate) last: usize,
+    pub(crate) stopper: Option<T>,
+}
+
 /// Where the code points of `text` from byte `at` that a rule keeps end: the first code point from
 /// there that it does not keep, or the end of the text, or where the scan has gone past one more
-/// than `left` of them; how many it went past; and where the last of them begins, which is `at`
-/// where there are none.
+/// than `left` of them.
 ///
-/// A rule says which ASCII characters it keeps by `kept_ascii`, a bit for each, and the others by
-/// `keeps`, which is asked only of what is past ASCII. A rule that keeps all of ASCII passes
-/// `u128::MAX`, and the scan goes over its ASCII eight bytes at a time.
+/// A rule says which ASCII characters it keeps by `kept`, and the others by `stops`, which is
+/// asked only of what is past ASCII and answers `Some` of what the rule has to say of a code point it
+/// does not keep, so that the caller that goes on from there does not ask again. A rule that keeps all
+/// of ASCII is [`KeptAscii::ALL`].
 #[inline(always)]
-pub(crate) fn kept_up_to(
+pub(crate) fn kept_up_to<T>(
     text: &str,
     mut at: usize,
     left: usize,
-    kept_ascii: u128,
-    keeps: impl Fn(char) -> bool,
-) -> (usize, usize, usize) {
+    kept: &KeptAscii,
+    stops: impl Fn(char) -> Option<T>,
+) -> Scanned<T> {
     let mut count = 0;
     let mut last = at;
+    // How many bytes of ASCII in a row the rule has kept, which is as many code points.
+    let mut streak = 0;
     while at < text.len() && count <= left {
         let bytes = &text.as_bytes()[..scan_stop(text, at, left, count)];
         while at < bytes.len() {
-            let run = ascii_run(&bytes[at..], kept_ascii);
-            if run > 0 {
-                at += run;
-                count += run;
-                last = at - 1;
-                if at == bytes.len() {
-                    break;
-                }
-            }
             if bytes[at] < 0x80 {
-                return (at, count, last);
+                if !kept.keeps(bytes[at]) {
+                    return Scanned {
+                        end: at,
+                        count,
+                        last,
+                        stopper: None,
+                    };
+                }
+                last = at;
+                at += 1;
+                count += 1;
+                streak += 1;
+                if streak == LONG_RUN {
+                    // Most runs of ASCII in text are short, between code points past it, and are gone
+                    // over a byte at a time; one that is longer is gone over eight at a time.
+                    let more = long_ascii_run(&bytes[at..], kept);
+                    at += more;
+                    count += more;
+                    if more > 0 {
+                        last = at - 1;
+                    }
+                    streak = 0;
+                }
+                continue;
             }
+            streak = 0;
             let c = text[at..]
                 .chars()
                 .next()
                 .expect("a byte that is not ASCII begins a character here");
-            if !keeps(c) {
-                return (at, count, last);
+            if let Some(stopper) = stops(c) {
+                return Scanned {
+                    end: at,
+                    count,
+                    last,
+                    stopper: Some(stopper),
+                };
             }
             last = at;
             at += c.len_utf8();
             count += 1;
         }
     }
-    (at, count, last)
+    Scanned {
+        end: at,
+        count,
+        last,
+        stopper: None,
+    }
 }
 
 /// How far a scan of `text` from byte `at`, which may go past one more than `left` code points and
@@ -62,23 +124,27 @@ pub(crate) fn scan_stop(text: &str, at: usize, left: usize, count: usize) -> usi
     }
 }
 
-/// How many bytes `bytes` begins with that are ASCII characters `kept_ascii` has a bit for, which
-/// are as many code points: eight at a time while eight are left, and the rest one at a time.
-#[inline(always)]
-fn ascii_run(bytes: &[u8], kept_ascii: u128) -> usize {
-    let kept = |byte: u8| byte < 0x80 && kept_ascii >> byte & 1 != 0;
+/// How many ASCII bytes in a row a scan has gone over before it goes over the rest of them eight at a
+/// time.
+const LONG_RUN: usize = 8;
+
+/// How many bytes `bytes` begins with that are ASCII characters `kept` keeps, eight at a time
+/// while eight are left and the rest one at a time. Not inlined: the loop of the scan is the same
+/// for a run of ASCII that is short as for text with none, and what it does with a long one is
+/// kept out of it.
+#[inline(never)]
+fn long_ascii_run(bytes: &[u8], kept: &KeptAscii) -> usize {
     let mut at = 0;
     for chunk in bytes.as_chunks::<8>().0 {
-        // A word with no byte past ASCII is all kept where the rule keeps all of ASCII.
         let past_ascii = u64::from_le_bytes(*chunk) & 0x8080_8080_8080_8080 != 0;
-        if past_ascii || kept_ascii != u128::MAX && !chunk.iter().all(|&byte| kept(byte)) {
+        if past_ascii || !kept.all && !chunk.iter().all(|&byte| kept.keeps(byte)) {
             break;
         }
         at += 8;
     }
     at + bytes[at..]
         .iter()
-        .position(|&byte| !kept(byte))
+        .position(|&byte| !kept.keeps(byte))
         .unwrap_or(bytes.len() - at)
 }
 
@@ -87,16 +153,24 @@ mod tests {
     use super::*;
     use alloc::vec::Vec;
 
+    fn only(kept: &[u8]) -> KeptAscii {
+        KeptAscii::of(core::array::from_fn(|byte| kept.contains(&(byte as u8))))
+    }
+
+    fn without(dropped: u8) -> KeptAscii {
+        KeptAscii::of(core::array::from_fn(|byte| byte != usize::from(dropped)))
+    }
+
     /// A run of ASCII ends at the first byte that is not kept, wherever it comes and however long
     /// the run is.
     #[test]
-    fn an_ascii_run_ends_at_the_first_byte_not_kept() {
+    fn a_long_ascii_run_ends_at_the_first_byte_not_kept() {
         let mut seed = 7u64;
         let mut next = move || {
             seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
             seed >> 33
         };
-        for kept_ascii in [u128::MAX, 0, 1 << b'a' | 1 << b'b', !(1 << b'z')] {
+        for kept in [KeptAscii::ALL, only(b""), only(b"ab"), without(b'z')] {
             for length in 0..40 {
                 for _ in 0..200 {
                     // Mostly kept, so that runs are long and every place gets a first byte past it.
@@ -109,9 +183,9 @@ mod tests {
                         .collect();
                     let expected = bytes
                         .iter()
-                        .position(|&b| b >= 0x80 || kept_ascii >> b & 1 == 0)
+                        .position(|&b| !kept.keeps(b))
                         .unwrap_or(bytes.len());
-                    assert_eq!(ascii_run(&bytes, kept_ascii), expected, "{bytes:?}");
+                    assert_eq!(long_ascii_run(&bytes, &kept), expected, "{bytes:?}");
                 }
             }
         }

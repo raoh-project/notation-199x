@@ -7,7 +7,7 @@ use crate::normalization_tables::{
     MOST_MARKS_COMPOSED, NFC_TRIVIAL_LIMIT, NFD_TRIVIAL_LIMIT, NFKC_TRIVIAL_LIMIT,
     NFKD_TRIVIAL_LIMIT, STABLE,
 };
-use crate::scan::kept_up_to;
+use crate::scan::{KeptAscii, Scanned, kept_up_to};
 
 /// The four normalization forms of UAX #15.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -174,9 +174,14 @@ fn normalized<const BOUNDED: bool, const COMPAT: bool, const COMPOSE: bool>(
     let mut at = 0;
     while at < text.len() {
         // What is written and read is never more than `longest`, so this does not wrap.
-        let (stable, count, last) = kept_up_to(text, at, longest - before - read, u128::MAX, |c| {
+        let Scanned {
+            end: stable,
+            count,
+            last,
+            ..
+        } = kept_up_to(text, at, longest - before - read, &KeptAscii::ALL, |c| {
             // Every form's trivial limit is past ASCII, so ASCII is all stable starters.
-            c < limit || is_stable(bit, c)
+            (c >= limit && !is_stable(bit, c)).then_some(())
         });
         if stable > at {
             read += count;
