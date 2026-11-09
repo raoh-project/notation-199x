@@ -171,31 +171,22 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
                        PagedTable stableStarters, PagedTable decomposition, Composing composing) {}
 
     /**
-     * The primary composites, as a table a pair of code points indexes in three steps: the row of
-     * the first, the column of the second, and the cell there. Hangul's, which are arithmetic, are
-     * not here.
+     * The primary composites, as the pairs of code points that compose: the row of the first, and in
+     * it the column of the second. Hangul's, which are arithmetic, are not here.
      *
-     * @param firsts     for each code point, 0 where it is the first member of no composition, and
-     *                   otherwise one more than its row: where it is among the first members, in order
-     *                   of code point
-     * @param seconds    the same of the second members, by column. A code point is not 0 here where
-     *                   and only where a starter before it may compose with it by the table
-     * @param columns    how many second members there are, the length of a row
-     * @param cells      for each row and column, at {@code row * columns + column}, 0 where the pair
-     *                   does not compose, and otherwise one more than where the composite is among
-     *                   {@code composites}
-     * @param composites the primary composites, in order of code point
-     * @param rowStarts  where each row begins among {@code pairs}, by row number less 1, and
-     *                   {@code pairs.length} after the last: the pairs of a row are
-     *                   {@code pairs[rowStarts[row]..rowStarts[row + 1])}
-     * @param pairs      the pairs that compose, a row at a time and in order of column within a
-     *                   row, each the composite's code point shifted left by 8 and the column of
-     *                   the second member, counted from 1 as {@code seconds} counts it. This holds
-     *                   what {@code cells} and {@code composites} hold of the pairs that compose,
-     *                   and not the cell of every pair
+     * @param firsts    for each code point, 0 where it is the first member of no composition, and
+     *                  otherwise one more than its row: where it is among the first members, in order
+     *                  of code point
+     * @param seconds   the same of the second members, by column. A code point is not 0 here where
+     *                  and only where a starter before it may compose with it by the table
+     * @param rowStarts where each row begins among {@code pairs}, by row number less 1, and
+     *                  {@code pairs.length} after the last: the pairs of a row are
+     *                  {@code pairs[rowStarts[row]..rowStarts[row + 1])}
+     * @param pairs     the pairs that compose, a row at a time and in order of column within a row,
+     *                  each the composite's code point shifted left by 8 and the column of the second
+     *                  member, counted from 1 as {@code seconds} counts it
      */
-    record Composing(PagedTable firsts, PagedTable seconds, int columns, int[] cells, int[] composites,
-                     int[] rowStarts, int[] pairs) {}
+    record Composing(PagedTable firsts, PagedTable seconds, int[] rowStarts, int[] pairs) {}
 
     /** The four normalization forms, by name, in the order each is a bit of
      *  {@link ByCodePoint#stableStarters}. */
@@ -576,34 +567,28 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
         }
         Map<Integer, Integer> rows = numbered(firsts);
         Map<Integer, Integer> columns = numbered(seconds);
-        int[] composites = compositions.entries().keySet().stream().mapToInt(Integer::intValue).toArray();
-        int[] cells = new int[rows.size() * columns.size()];
-        for (int i = 0; i < composites.length; i++) {
-            int[] pair = compositions.entries().get(composites[i]);
-            cells[rows.get(pair[0]) * columns.size() + columns.get(pair[1])] = i + 1;
-        }
         if (columns.size() > 0xFF) {
             throw new IllegalStateException("a column of the compositions does not fit the eight bits it is held in");
         }
+        // For each row, the composite of each column, in order of column.
+        List<SortedMap<Integer, Integer>> byRow = new ArrayList<>();
+        for (int row = 0; row < rows.size(); row++) {
+            byRow.add(new TreeMap<>());
+        }
+        compositions.entries().forEach((composite, pair) ->
+                byRow.get(rows.get(pair[0])).put(columns.get(pair[1]) + 1, composite));
         int[] rowStarts = new int[rows.size() + 1];
-        int[] pairs = new int[composites.length];
+        int[] pairs = new int[compositions.entries().size()];
         int at = 0;
         for (int row = 0; row < rows.size(); row++) {
             rowStarts[row] = at;
-            for (int column = 0; column < columns.size(); column++) {
-                int cell = cells[row * columns.size() + column];
-                if (cell != 0) {
-                    pairs[at++] = composites[cell - 1] << 8 | (column + 1);
-                }
+            for (Map.Entry<Integer, Integer> cell : byRow.get(row).entrySet()) {
+                pairs[at++] = cell.getValue() << 8 | cell.getKey();
             }
         }
         rowStarts[rows.size()] = at;
-        if (at != pairs.length) {
-            throw new IllegalStateException("the compositions hold " + at + " pairs of " + pairs.length);
-        }
         return new Composing(PagedTable.of(cp -> rows.containsKey(cp) ? rows.get(cp) + 1 : 0),
-                PagedTable.of(cp -> columns.containsKey(cp) ? columns.get(cp) + 1 : 0),
-                columns.size(), cells, composites, rowStarts, pairs);
+                PagedTable.of(cp -> columns.containsKey(cp) ? columns.get(cp) + 1 : 0), rowStarts, pairs);
     }
 
     /** {@link ByCodePoint#decomposition}: the canonical decompositions numbered from 1, and the
