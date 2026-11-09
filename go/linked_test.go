@@ -95,11 +95,14 @@ func TestAProgramCarriesOnlyTheTablesItAsksFor(t *testing.T) {
 		call   string
 		groups string
 	}{
-		{"NFC", `n.NFCNormalizer().Normalize(text)`, "canonical composition"},
-		{"NFC within", `n.NFCNormalizer().NormalizeWithin(text, 10)`, "canonical composition"},
-		{"NFD", `n.NFDNormalizer().Normalize(text)`, "canonical"},
-		{"NFKC", `n.NFKCNormalizer().Normalize(text)`, "canonical compatibility composition"},
-		{"NFKD", `n.NFKDNormalizer().Normalize(text)`, "canonical compatibility"},
+		{"NFC", `n.NormalizeNFC(text)`, "canonical composition"},
+		{"NFC within", `n.NormalizeNFCWithin(text, 10)`, "canonical composition"},
+		{"NFD", `n.NormalizeNFD(text)`, "canonical"},
+		{"NFD within", `n.NormalizeNFDWithin(text, 10)`, "canonical"},
+		{"NFKC", `n.NormalizeNFKC(text)`, "canonical compatibility composition"},
+		{"NFKC within", `n.NormalizeNFKCWithin(text, 10)`, "canonical compatibility composition"},
+		{"NFKD", `n.NormalizeNFKD(text)`, "canonical compatibility"},
+		{"NFKD within", `n.NormalizeNFKDWithin(text, 10)`, "canonical compatibility"},
 		{"Normalize by form", `n.Normalize(n.NFC, text)`, "canonical compatibility composition"},
 		{"NormalizeWithin by form", `n.NormalizeWithin(n.NFC, text, 10)`, "canonical compatibility composition"},
 		{"Lowercase", `n.Lowercase(text)`, "lower"},

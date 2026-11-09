@@ -123,55 +123,54 @@ func (f Form) String() string {
 // canonically wherever nothing blocks it. The compatibility forms decompose by the compatibility
 // mappings as well as the canonical ones; composition is canonical in every form. s is valid UTF-8
 // (see [InvalidUTF8At]). Normalize panics where form is none of the four forms.
-func Normalize(form Form, s string) string {
-	normalized, _ := normalize(form.facts(), s, -1)
+func Normalize(form Form, s string) string { return normalizeIn(form.facts(), s) }
+
+// NormalizeNFC is s in [NFC], as [Normalize] is. A program that calls only NormalizeNFC or
+// NormalizeNFD, and their Within, is linked without the compatibility mappings, and one that calls
+// only NormalizeNFD or NormalizeNFKD without the composition tables, which [Normalize], that takes
+// the form as a value, cannot do.
+func NormalizeNFC(s string) string { return normalizeIn(&nfcFacts, s) }
+
+// NormalizeNFD is s in [NFD], as [NormalizeNFC] is in [NFC].
+func NormalizeNFD(s string) string { return normalizeIn(&nfdFacts, s) }
+
+// NormalizeNFKC is s in [NFKC], as [NormalizeNFC] is in [NFC].
+func NormalizeNFKC(s string) string { return normalizeIn(&nfkcFacts, s) }
+
+// NormalizeNFKD is s in [NFKD], as [NormalizeNFC] is in [NFC].
+func NormalizeNFKD(s string) string { return normalizeIn(&nfkdFacts, s) }
+
+// NormalizeNFCWithin is [NormalizeNFC] where that is no longer than longest scalar values, and
+// false where it is longer, as [NormalizeWithin] is of [Normalize].
+func NormalizeNFCWithin(s string, longest int) (string, bool) {
+	return normalizeWithinIn(&nfcFacts, s, longest)
+}
+
+// NormalizeNFDWithin is [NormalizeNFD] where that is no longer than longest scalar values.
+func NormalizeNFDWithin(s string, longest int) (string, bool) {
+	return normalizeWithinIn(&nfdFacts, s, longest)
+}
+
+// NormalizeNFKCWithin is [NormalizeNFKC] where that is no longer than longest scalar values.
+func NormalizeNFKCWithin(s string, longest int) (string, bool) {
+	return normalizeWithinIn(&nfkcFacts, s, longest)
+}
+
+// NormalizeNFKDWithin is [NormalizeNFKD] where that is no longer than longest scalar values.
+func NormalizeNFKDWithin(s string, longest int) (string, bool) {
+	return normalizeWithinIn(&nfkdFacts, s, longest)
+}
+
+func normalizeIn(facts *formFacts, s string) string {
+	normalized, _ := normalize(facts, s, -1)
 	return normalized
 }
 
-// Normalizer normalizes in the one form it was made for, which the program that makes it names
-// where it is written and not where it runs. A program that makes only an [NFCNormalizer] or an
-// [NFDNormalizer] is linked without the compatibility mappings, and one that makes only an
-// [NFDNormalizer] or an [NFKDNormalizer] without the composition tables, which [Normalize], that
-// takes the form as a value, cannot do. The zero Normalizer is none of them, and panics where it is
-// used.
-type Normalizer struct {
-	facts *formFacts
-}
-
-// NFCNormalizer is the Normalizer of [NFC].
-func NFCNormalizer() Normalizer { return Normalizer{&nfcFacts} }
-
-// NFDNormalizer is the Normalizer of [NFD].
-func NFDNormalizer() Normalizer { return Normalizer{&nfdFacts} }
-
-// NFKCNormalizer is the Normalizer of [NFKC].
-func NFKCNormalizer() Normalizer { return Normalizer{&nfkcFacts} }
-
-// NFKDNormalizer is the Normalizer of [NFKD].
-func NFKDNormalizer() Normalizer { return Normalizer{&nfkdFacts} }
-
-// Normalize is s in the form n was made for, as [Normalize] is.
-func (n Normalizer) Normalize(s string) string {
-	normalized, _ := normalize(n.of(), s, -1)
-	return normalized
-}
-
-// NormalizeWithin is s in the form n was made for where that is no longer than longest scalar
-// values, as [NormalizeWithin] is.
-func (n Normalizer) NormalizeWithin(s string, longest int) (string, bool) {
-	facts := n.of()
+func normalizeWithinIn(facts *formFacts, s string, longest int) (string, bool) {
 	if longest < 0 {
 		return "", false
 	}
 	return normalize(facts, s, longest)
-}
-
-// of is the facts of the form n was made for, which panics where n is the zero Normalizer.
-func (n Normalizer) of() *formFacts {
-	if n.facts == nil {
-		panic("notation199x: the zero Normalizer is none of the forms; make one with NFCNormalizer, NFDNormalizer, NFKCNormalizer or NFKDNormalizer")
-	}
-	return n.facts
 }
 
 // NormalizeWithin is [Normalize] where that is no longer than longest scalar values, and false
@@ -180,11 +179,7 @@ func (n Normalizer) of() *formFacts {
 // it has read shows the answer to be longer. A negative bound is one no text is within.
 // NormalizeWithin panics where form is none of the four forms.
 func NormalizeWithin(form Form, s string, longest int) (string, bool) {
-	facts := form.facts()
-	if longest < 0 {
-		return "", false
-	}
-	return normalize(facts, s, longest)
+	return normalizeWithinIn(form.facts(), s, longest)
 }
 
 // normalize is s in form, and false where that is longer than longest; a negative longest is no
