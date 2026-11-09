@@ -57,18 +57,19 @@ func TestAProgramCarriesOnlyTheTablesItAsksFor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The path of this module is what its go.mod says, which the programs the test builds import and
-	// the symbols of what they carry are named by. A name written out here would be one go.mod can
-	// leave behind, and go builds a program that replaces a module by one of another name, so the
-	// test would go on passing on a module that is not this one.
-	listed, err := goIn(module, "list", "-m").Output()
+	// The path of this module and its Go are what its go.mod says, which the programs the test
+	// builds import and are of, and the symbols of what they carry are named by. A name written out
+	// here would be one go.mod can leave behind, and go builds a program that replaces a module by one
+	// of another name, so the test would go on passing on a module that is not this one.
+	listed, err := goIn(module, "list", "-m", "-f", "{{.Path}} {{.GoVersion}}").Output()
 	if err != nil {
 		t.Fatalf("go list -m: %v", err)
 	}
-	modulePath := strings.TrimSpace(string(listed))
-	if modulePath == "" || strings.ContainsAny(modulePath, " \n") {
-		t.Fatalf("go list -m answers %q, which is not a module path", listed)
+	fields := strings.Fields(string(listed))
+	if len(fields) != 2 {
+		t.Fatalf("go list -m answers %q, which is not a module path and a Go version", listed)
 	}
+	modulePath, goVersion := fields[0], fields[1]
 	dir := t.TempDir()
 	write := func(name, text string) {
 		t.Helper()
@@ -82,7 +83,7 @@ func TestAProgramCarriesOnlyTheTablesItAsksFor(t *testing.T) {
 	// The module is written by the tool that reads it, which takes the path of the library as an
 	// argument and not as text of its own syntax, so that no path of the library's is one it cannot
 	// read.
-	write("go.mod", "module linked\n\ngo 1.23\n")
+	write("go.mod", "module linked\n\ngo "+goVersion+"\n")
 	edit := goIn(dir, "mod", "edit", "-require="+modulePath+"@v0.0.0", "-replace="+modulePath+"="+module)
 	if out, err := edit.CombinedOutput(); err != nil {
 		t.Fatalf("go mod edit: %v\n%s", err, out)
