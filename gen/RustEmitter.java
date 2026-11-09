@@ -96,7 +96,7 @@ final class RustEmitter {
                 + " and it composes with nothing before it, since what does is Maybe, which the generator"
                 + " checks.", model.byCodePoint().stableStarters(), "u8");
 
-        UcdModel.Composing composing = model.byCodePoint().composing();
+        SparseComposition composing = SparseComposition.of(model.normalizationDerived().compositions());
         paged(out, "COMPOSITION_FIRST", "For each code point, 0 where it is the first member of no primary"
                 + " composite, and otherwise one more than its row of `COMPOSITION_ROWS`.", composing.firsts(), "u16");
         paged(out, "COMPOSITION_SECOND", "For each code point, 0 where it is the second member of no primary"
@@ -112,7 +112,7 @@ final class RustEmitter {
         out.append("];\n\n");
         docComment(out, "The pairs that compose, " + composing.pairs().length + " of them, the pairs of a first member"
                 + " together and in order of the column of the second member, as `COMPOSITION_SECOND` numbers it:"
-                + " each is the composite's code point shifted left by eight, and the column. Hangul's, which"
+                + " each is the composite's code point shifted left by " + SparseComposition.COLUMN_BITS + ", and the column. Hangul's, which"
                 + " are arithmetic, are not here.");
         out.append("pub(crate) static COMPOSITION_PAIRS: [u32; ").append(composing.pairs().length)
                 .append("] = [\n");

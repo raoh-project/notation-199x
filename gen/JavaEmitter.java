@@ -253,7 +253,7 @@ final class JavaEmitter {
         holder(out, "Compatibility", "The compatibility mappings, which a program that normalizes in no compatibility"
                 + " form never loads.", compatibility);
 
-        UcdModel.Composing composing = model.byCodePoint().composing();
+        SparseComposition composing = SparseComposition.of(model.normalizationDerived().compositions());
         StringBuilder composition = new StringBuilder();
         paged(composition, "FIRST", "For each code point, 0 where it is the first member of no primary"
                 + " composite, and otherwise one more than its row of {@link #ROWS}.", composing.firsts(), true);
@@ -267,7 +267,7 @@ final class JavaEmitter {
         composition.append("    static final int[] ROWS = decodeIntValues(")
                 .append(literal(hexValues(composing.rowStarts()))).append(");\n\n");
         docComment(composition, "The pairs that compose (" + composing.pairs().length + "), a row at a time and in"
-                + " order of the column of the second member within a row, each the composite shifted left by 8"
+                + " order of the column of the second member within a row, each the composite shifted left by " + SparseComposition.COLUMN_BITS
                 + " and the column. Hangul's, which are arithmetic, are not here.");
         composition.append("    static final int[] PAIRS = decodeIntValues(")
                 .append(literal(hexValues(composing.pairs()))).append(");\n\n");

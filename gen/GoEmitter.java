@@ -92,7 +92,7 @@ final class GoEmitter {
                 + " and it composes with nothing before it, since what does is Maybe, which the generator"
                 + " checks.", model.byCodePoint().stableStarters(), "uint8");
 
-        UcdModel.Composing composing = model.byCodePoint().composing();
+        SparseComposition composing = SparseComposition.of(model.normalizationDerived().compositions());
         paged(out, "compositionFirst", "for each code point, 0 where it is the first member of no primary"
                 + " composite, and otherwise one more than its row of compositionRows.", composing.firsts(), "uint16");
         paged(out, "compositionSecond", "for each code point, 0 where it is the second member of no primary"
@@ -107,7 +107,7 @@ final class GoEmitter {
         out.append("}\n\n");
         comment(out, "compositionPairs is the pairs that compose, " + composing.pairs().length + " of them, the pairs"
                 + " of a first member together and in order of the column of the second member, as compositionSecond"
-                + " numbers it: each is the composite's code point shifted left by eight, and the column. Hangul's,"
+                + " numbers it: each is the composite's code point shifted left by " + SparseComposition.COLUMN_BITS + ", and the column. Hangul's,"
                 + " which are arithmetic, are not here.");
         out.append("var compositionPairs = [").append(composing.pairs().length).append("]uint32{\n");
         values(out, composing.pairs(), 6);

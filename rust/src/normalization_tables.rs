@@ -8104,7 +8104,7 @@ pub(crate) static COMPOSITION_ROWS: [u16; 392] = [
 
 /// The pairs that compose, 961 of them, the pairs of a first member together and in order of the
 /// column of the second member, as `COMPOSITION_SECOND` numbers it: each is the composite's code
-/// point shifted left by eight, and the column. Hangul's, which are arithmetic, are not here.
+/// point shifted left by 8, and the column. Hangul's, which are arithmetic, are not here.
 pub(crate) static COMPOSITION_PAIRS: [u32; 961] = [
     0x226E1C, 0x22601C, 0x226F1C, 0x00C001, 0x00C102, 0x00C203, 0x00C304, 0x010005, 0x010206, 0x022607, 0x00C408, 0x1EA209, 0x00C50A, 0x01CD0C, 0x02000D, 0x02020E,
     0x1EA012, 0x1E0014, 0x010417, 0x1E0207, 0x1E0412, 0x1E061B, 0x010602, 0x010803, 0x010A07, 0x010C0C, 0x00C716, 0x1E0A07, 0x010E0C, 0x1E0C12, 0x1E1016, 0x1E1218,

@@ -122,7 +122,7 @@ final class TsEmitter {
     }
 
     private static String compositionTables(UcdModel model) {
-        UcdModel.Composing composing = model.byCodePoint().composing();
+        SparseComposition composing = SparseComposition.of(model.normalizationDerived().compositions());
         StringBuilder out = header(model, "Normalization's primary compositions, which only the two composing forms"
                 + " read, checked against DerivedNormalizationProps.txt's Full_Composition_Exclusion when they were"
                 + " generated", List.of("UnicodeData.txt", "CompositionExclusions.txt", "DerivedNormalizationProps.txt"));
@@ -136,7 +136,7 @@ final class TsEmitter {
                 + " begins to where the next row does.");
         out.append("export const COMPOSITION_ROWS = ").append(units(composing.rowStarts())).append(";\n\n");
         docComment(out, "The pairs that compose, a row at a time and in order of column within a row, each the"
-                + " composite's code point shifted left by 8 and the column of the second member, counted from 1"
+                + " composite's code point shifted left by " + SparseComposition.COLUMN_BITS + " and the column of the second member, counted from 1"
                 + " as `COMPOSITION_SECOND` counts it. Hangul's, which are arithmetic, are not here.");
         out.append("export const COMPOSITION_PAIRS: readonly number[] = [\n");
         numbers(out, composing.pairs());
