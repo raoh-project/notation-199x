@@ -281,6 +281,44 @@ jobs:
           NOTATION199X_JAVA_IMAGES: ${{ github.workspace }}/java-images/pattern-match.txt
         run: cargo test --test java_images
 
+  # The instructions and the time of normalization and case conversion in the commit a pull request
+  # proposes, against the commit it branched from. A count of instructions over the limit is
+  # reported in the summary of the job and does not fail it; a comparison that could not be made
+  # does. The runner is fixed, so that the machine is the one thing that does not change between
+  # two runs of this.
+  rust-perf:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Install the Rust toolchain
+        working-directory: rust
+        run: rustup toolchain install
+      - name: Install Valgrind and the runner of the version the benchmarks name
+        working-directory: rust
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+          cargo install gungraun-runner --locked \
+            --version "$(sed -n 's/^gungraun = "=\(.*\)"/\1/p' Cargo.toml)"
+      # Against where the pull request branched from, so that what the base branch gained since is
+      # not counted as what the pull request changed.
+      - name: Compare the benchmarks
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          OUT: ${{ runner.temp }}/perf-report
+        run: sh rust/benches/compare.sh "$(git merge-base "$BASE_SHA" "$HEAD_SHA")" "$HEAD_SHA"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rust-perf-report
+          path: ${{ runner.temp }}/perf-report
+          if-no-files-found: ignore
+
   # A tag names a release: vX.Y.Z on a commit whose version is X.Y.Z. Checked when it is pushed,
   # before anything is deployed from it.
   release-tag:
