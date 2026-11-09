@@ -141,8 +141,9 @@ public final class Automaton {
      * construction handed in, each once, which making them already cost.
      */
     private Automaton(Laying laid, BitSet accepting) {
-        Map<CodePoints, CodePoints> met = new IdentityHashMap<>();
-        Map<CodePoints, CodePoints> held = new HashMap<>();
+        // A set met again as itself is known by the hash it holds and by being the same object, so
+        // one map is enough: the sets are hashed once each, and compared only where they collide.
+        Map<CodePoints, CodePoints> held = new HashMap<>(Math.max(16, laid.steps * 4 / 3 + 1));
         int states = laid.states;
         int[] stepStart = new int[states + 1];
         int[] stepTo = new int[laid.steps];
@@ -158,12 +159,8 @@ public final class Automaton {
         int[] filled = Arrays.copyOf(stepStart, states);
         for (int at = 0; at < laid.steps; at++) {
             CodePoints over = laid.stepOver[at];
-            CodePoints one = met.get(over);
-            if (one == null) {
-                CodePoints had = held.putIfAbsent(over, over);
-                one = had != null ? had : over;
-                met.put(over, one);
-            }
+            CodePoints had = held.putIfAbsent(over, over);
+            CodePoints one = had != null ? had : over;
             int place = filled[laid.stepFrom[at]]++;
             stepTo[place] = laid.stepTo[at];
             stepOver[place] = one;
@@ -624,7 +621,7 @@ public final class Automaton {
     public @Nullable Automaton and(Automaton other, Meter meter) {
         try {
             Meter.Making making = meter.making();
-            Pairs pairs = new Pairs(other.size(), making);
+            Pairs pairs = new Pairs(this.size(), other.size(), making);
             Laying laid = new Laying();
             BitSet accepting = new BitSet();
             pairs.at(START, START);
@@ -691,44 +688,122 @@ public final class Automaton {
 
         private final int wide;
         private final Meter.Making making;
-        private final Map<Long, Integer> known = new HashMap<>();
-        private final List<Integer> mine = new ArrayList<>();
-        private final List<Integer> theirs = new ArrayList<>();
+        /** The pairs by their key, open-addressed: a pair is looked for on every step of a walk,
+         *  and boxing a key and a number for each was most of what the look cost. */
+        private long[] keys;
+        private int[] numbers;
+        /** Where the pairs there could be are few, each has a place of its own and no key is
+         *  looked for: the number of the pair, or -1 where it has not been reached. */
+        private final int @Nullable [] direct;
+        private int[] mine = new int[16];
+        private int[] theirs = new int[16];
+        private int count;
 
-        Pairs(int wide, Meter.Making making) {
+        /** The most pairs a table with a place for each is made for. What it costs to make is the
+         *  size of it and not what the walk reaches, so it is kept to a size that is a few
+         *  cache lines and not a room of its own. */
+        private static final int DIRECT = 2048;
+
+        Pairs(int narrow, int wide, Meter.Making making) {
             this.wide = wide;
             this.making = making;
+            if ((long) narrow * wide <= DIRECT) {
+                this.direct = new int[narrow * wide];
+                Arrays.fill(this.direct, -1);
+                this.keys = new long[0];
+                this.numbers = new int[0];
+            } else {
+                this.direct = null;
+                // A walk reaches a handful of the pairs there are, and a table that began small
+                // was made again at each doubling on the way up to the size it came to.
+                int room = 1024;
+                this.keys = emptyKeys(room);
+                this.numbers = new int[room];
+            }
+        }
+
+        private static long[] emptyKeys(int room) {
+            long[] out = new long[room];
+            Arrays.fill(out, -1L);
+            return out;
+        }
+
+        private static int slot(long key, int mask) {
+            long mixed = key * 0x9E3779B97F4A7C15L;
+            return (int) (mixed >>> 32) & mask;
         }
 
         /** Which state the pair is, making it where it has not been reached before. */
         int at(int mine, int theirs) {
             // A long, because the two sizes multiplied is what this could run to and nothing has
             // been asked about that: a key that overflowed would put two pairs in one state.
-            Long key = (long) mine * wide + theirs;
-            Integer had = known.get(key);
-            if (had != null) {
-                return had;
+            long key = (long) mine * wide + theirs;
+            int slot = 0;
+            if (direct != null) {
+                int had = direct[(int) key];
+                if (had >= 0) {
+                    return had;
+                }
+            } else {
+                int mask = keys.length - 1;
+                slot = slot(key, mask);
+                while (keys[slot] != -1L) {
+                    if (keys[slot] == key) {
+                        return numbers[slot];
+                    }
+                    slot = (slot + 1) & mask;
+                }
             }
             if (!making.state()) {
                 throw new TooMany();
             }
-            int made = this.mine.size();
-            this.mine.add(mine);
-            this.theirs.add(theirs);
-            known.put(key, made);
+            int made = count++;
+            if (made == this.mine.length) {
+                this.mine = Arrays.copyOf(this.mine, made * 2);
+                this.theirs = Arrays.copyOf(this.theirs, made * 2);
+            }
+            this.mine[made] = mine;
+            this.theirs[made] = theirs;
+            if (direct != null) {
+                direct[(int) key] = made;
+            } else {
+                keys[slot] = key;
+                numbers[slot] = made;
+                if (count * 2 > keys.length) {
+                    grow();
+                }
+            }
             return made;
         }
 
+        private void grow() {
+            long[] old = keys;
+            int[] oldNumbers = numbers;
+            keys = emptyKeys(old.length * 2);
+            numbers = new int[old.length * 2];
+            int mask = keys.length - 1;
+            for (int at = 0; at < old.length; at++) {
+                if (old[at] != -1L) {
+                    int slot = slot(old[at], mask);
+                    while (keys[slot] != -1L) {
+                        slot = (slot + 1) & mask;
+                    }
+                    keys[slot] = old[at];
+                    numbers[slot] = oldNumbers[at];
+                }
+            }
+        }
+
         int count() {
-            return mine.size();
+            return count;
         }
 
         int mine(int state) {
-            return mine.get(state);
+            return mine[state];
         }
 
         int theirs(int state) {
-            return theirs.get(state);
+            return theirs[state];
         }
     }
 
