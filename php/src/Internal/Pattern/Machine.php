@@ -74,8 +74,11 @@ final class Machine
      * but the last it comes to has a step taken from it.
      */
     private const TABLE_BYTES = self::ARRAY_BYTES + self::TABLE_PLACE_BYTES * self::SMALLEST;
-    /** What a key of two to four bytes takes: a string of 24 bytes, the key and its end, in the 32-byte bin. */
-    private const KEY_BYTES = 32;
+    /**
+     * What a key of two to four bytes takes at the least, a string of 24 bytes, the key and its end,
+     * in the 32-byte bin. What it takes is keyBytes(), which is asked of PHP.
+     */
+    private const SMALLEST_KEY_BYTES = 32;
     /** The most a set's loop takes: each ASCII character once in a string, 153 bytes in the 160-byte bin. */
     private const LOOP_BYTES = 160;
     /** The fewest places PHP makes an array with. */
@@ -128,9 +131,13 @@ final class Machine
     private int $bytes = 0;
     /** What the sets every walk needs take, as need() counts it, beside the room. */
     private int $needed = 0;
+    /** What a key of two to four bytes takes, as PHP has it: asked when the machine is made, and
+     *  read by the walk as a number. */
+    private int $keyBytes = self::SMALLEST_KEY_BYTES;
 
     private function __construct()
     {
+        $this->keyBytes = self::keyBytesAsPhpHasThem();
     }
 
     /**
@@ -325,7 +332,7 @@ final class Machine
         }
         $loop = $width === 1 && $next === $from;
         if ($width > 1) {
-            $cost += self::KEY_BYTES;
+            $cost += $this->keyBytes;
         } elseif ($loop && $this->keptLoop[$from] === '') {
             $cost += self::LOOP_BYTES;
         }
@@ -746,6 +753,30 @@ final class Machine
      * go by eight up to 64 and then by four steps between each power of two and the next, up to
      * 3072; and past that, whole pages of 4096 bytes.
      */
+    /**
+     * What a key of two to four bytes takes, which is made as a walk makes one and measured as
+     * MachineTest measures what is kept.
+     *
+     * Asked of PHP and not written down: the size of a string PHP makes by cutting it from another
+     * is its own to change, and has changed, from the 32 bytes the layout of a string gives it to
+     * 40, between releases of one version. A key is charged for each step over a character of more
+     * than a byte, so a charge a bin out is a table of them charged a bin each out. Asked when a
+     * machine is made, a few strings once, and not by the walk, which holds only the number. Never
+     * less than a string takes at the least, so that a count PHP cannot give is not a charge of
+     * nothing.
+     */
+    private static function keyBytesAsPhpHasThem(): int
+    {
+        $source = "\xC4\x80\xC4\x81\xC4\x82\xC4\x83\xC4\x84\xC4\x85\xC4\x86\xC4\x87";
+        $keys = array_fill(0, 8, '');
+        $before = memory_get_usage();
+        for ($i = 0; $i < 8; $i++) {
+            $keys[$i] = substr($source, $i * 2, 2);
+        }
+        $each = intdiv(memory_get_usage() - $before, 8);
+        return max(self::SMALLEST_KEY_BYTES, ($each + 7) & ~7);
+    }
+
     private static function bin(int $bytes): int
     {
         if ($bytes <= 64) {
