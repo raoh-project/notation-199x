@@ -19,34 +19,43 @@ const (
 	NFKD
 )
 
-// formFacts is what the algorithm asks of a form.
+// formFacts is what the algorithm asks of a form. What a form reads of the tables is held in the
+// functions it names and in nothing else the algorithm runs, so that a program that asks for one
+// form is linked with what that form reads: a function is linked where something the program
+// reaches names it, and a form's facts are named where the program asks for the form.
 type formFacts struct {
-	name string
-	// compatibility is whether the compatibility mappings are followed as well as the canonical.
-	compatibility bool
-	// composes is whether canonical composition follows the decomposition.
-	composes bool
+	// compatibility is the compatibility mappings, which the compatibility forms follow as well as
+	// the canonical, and nil in a form that follows only the canonical.
+	compatibility *mapping
+	// compose is the primary composite of a starter and a code point after it, nil in a form that
+	// does not compose.
+	compose func(starter, r rune) (rune, bool)
 	// trivialLimit is the code point below which every code point is a stable starter of the
 	// form, which is known without asking a table. Every form's is past ASCII and before the
 	// surrogates, which the generator checks.
 	trivialLimit rune
-	// stableBit is the form's bit of stablePages.
+	// stableBit is the form's bit of stable.
 	stableBit uint8
 }
 
-var forms = [...]formFacts{
-	NFC:  {"NFC", false, true, nfcTrivialLimit, 1},
-	NFD:  {"NFD", false, false, nfdTrivialLimit, 2},
-	NFKC: {"NFKC", true, true, nfkcTrivialLimit, 4},
-	NFKD: {"NFKD", true, false, nfkdTrivialLimit, 8},
-}
+var (
+	nfcFacts  = formFacts{nil, compose, nfcTrivialLimit, 1}
+	nfdFacts  = formFacts{nil, nil, nfdTrivialLimit, 2}
+	nfkcFacts = formFacts{&compatibilityDecomposition, compose, nfkcTrivialLimit, 4}
+	nfkdFacts = formFacts{&compatibilityDecomposition, nil, nfkdTrivialLimit, 8}
+)
+
+// forms is each form's facts, which asking for a form by its number links all of.
+var forms = [...]*formFacts{NFC: &nfcFacts, NFD: &nfdFacts, NFKC: &nfkcFacts, NFKD: &nfkdFacts}
+
+var formNames = [...]string{NFC: "NFC", NFD: "NFD", NFKC: "NFKC", NFKD: "NFKD"}
 
 // stable is whether r is a stable starter of the form: a starter whose quick check for the form
 // is Yes. Text made only of them is its own normalization in the form, and one of them ends what
 // comes before it: no mark after it is put in order before it or composes with a starter before
 // it, and it composes with nothing before it.
 func (f *formFacts) stable(r rune) bool {
-	return r < f.trivialLimit || stablePages[int(stableBlocks[r>>8])<<8|int(r&0xFF)]&f.stableBit != 0
+	return r < f.trivialLimit || stable.get(r)&f.stableBit != 0
 }
 
 // stableUpTo is where the stable starters s has from at end: the first code point from there that
@@ -93,13 +102,13 @@ func (f Form) facts() *formFacts {
 	if int(f) >= len(forms) {
 		noneOf("Form", uint8(f))
 	}
-	return &forms[f]
+	return forms[f]
 }
 
 // String is the form's name, NFC, NFD, NFKC or NFKD, or Form(n) where it is none of them.
 func (f Form) String() string {
 	if int(f) < len(forms) {
-		return forms[f].name
+		return formNames[f]
 	}
 	return nameOf(nil, "Form", uint8(f))
 }
@@ -115,8 +124,54 @@ func (f Form) String() string {
 // mappings as well as the canonical ones; composition is canonical in every form. s is valid UTF-8
 // (see [InvalidUTF8At]). Normalize panics where form is none of the four forms.
 func Normalize(form Form, s string) string {
-	normalized, _ := normalize(form, s, -1)
+	normalized, _ := normalize(form.facts(), s, -1)
 	return normalized
+}
+
+// Normalizer normalizes in the one form it was made for, which the program that makes it names
+// where it is written and not where it runs. A program that makes only an [NFCNormalizer] or an
+// [NFDNormalizer] is linked without the compatibility mappings, and one that makes only an
+// [NFDNormalizer] or an [NFKDNormalizer] without the composition tables, which [Normalize], that
+// takes the form as a value, cannot do. The zero Normalizer is none of them, and panics where it is
+// used.
+type Normalizer struct {
+	facts *formFacts
+}
+
+// NFCNormalizer is the Normalizer of [NFC].
+func NFCNormalizer() Normalizer { return Normalizer{&nfcFacts} }
+
+// NFDNormalizer is the Normalizer of [NFD].
+func NFDNormalizer() Normalizer { return Normalizer{&nfdFacts} }
+
+// NFKCNormalizer is the Normalizer of [NFKC].
+func NFKCNormalizer() Normalizer { return Normalizer{&nfkcFacts} }
+
+// NFKDNormalizer is the Normalizer of [NFKD].
+func NFKDNormalizer() Normalizer { return Normalizer{&nfkdFacts} }
+
+// Normalize is s in the form n was made for, as [Normalize] is.
+func (n Normalizer) Normalize(s string) string {
+	normalized, _ := normalize(n.of(), s, -1)
+	return normalized
+}
+
+// NormalizeWithin is s in the form n was made for where that is no longer than longest scalar
+// values, as [NormalizeWithin] is.
+func (n Normalizer) NormalizeWithin(s string, longest int) (string, bool) {
+	facts := n.of()
+	if longest < 0 {
+		return "", false
+	}
+	return normalize(facts, s, longest)
+}
+
+// of is the facts of the form n was made for, which panics where n is the zero Normalizer.
+func (n Normalizer) of() *formFacts {
+	if n.facts == nil {
+		panic("notation199x: the zero Normalizer is none of the forms; make one with NFCNormalizer, NFDNormalizer, NFKCNormalizer or NFKDNormalizer")
+	}
+	return n.facts
 }
 
 // NormalizeWithin is [Normalize] where that is no longer than longest scalar values, and false
@@ -125,11 +180,11 @@ func Normalize(form Form, s string) string {
 // it has read shows the answer to be longer. A negative bound is one no text is within.
 // NormalizeWithin panics where form is none of the four forms.
 func NormalizeWithin(form Form, s string, longest int) (string, bool) {
-	form.facts()
+	facts := form.facts()
 	if longest < 0 {
 		return "", false
 	}
-	return normalize(form, s, longest)
+	return normalize(facts, s, longest)
 }
 
 // normalize is s in form, and false where that is longer than longest; a negative longest is no
@@ -146,8 +201,7 @@ func NormalizeWithin(form Form, s string, longest int) (string, bool) {
 // Each stable starter read is at least one code point of the answer, as the starter it is or
 // composed with what follows it, so with a bound the text is read no further once those read and
 // those before them are more than longest.
-func normalize(form Form, s string, longest int) (string, bool) {
-	facts := form.facts()
+func normalize(facts *formFacts, s string, longest int) (string, bool) {
 	var out strings.Builder
 	// changed is whether a run has changed what it went over, and out holds the answer up to kept.
 	changed := false
@@ -280,7 +334,7 @@ func (c *composing) run(s string, start, at int, before int) (int, bool) {
 // take takes the next decomposed code point, and is false where what is written has passed
 // longest.
 func (c *composing) take(r rune) bool {
-	if combiningClass(r) != 0 {
+	if combiningClass.get(r) != 0 {
 		if c.longest >= 0 && c.leastHeld(len(c.marks)+1) > c.longest-c.written {
 			return false
 		}
@@ -288,8 +342,8 @@ func (c *composing) take(r rune) bool {
 		return true
 	}
 	kept := c.settle()
-	if c.form.composes && c.starter >= 0 && kept == 0 {
-		if composed, ok := compose(c.starter, r); ok {
+	if c.form.compose != nil && c.starter >= 0 && kept == 0 {
+		if composed, ok := c.form.compose(c.starter, r); ok {
 			c.starter = composed
 			return true
 		}
@@ -308,7 +362,7 @@ func (c *composing) leastHeld(marks int) int {
 	if c.starter < 0 {
 		return marks
 	}
-	if c.form.composes {
+	if c.form.compose != nil {
 		marks = max(marks-mostMarksComposed, 0)
 	}
 	return 1 + marks
@@ -320,15 +374,15 @@ func (c *composing) settle() int {
 	if len(c.marks) > 1 {
 		c.order()
 	}
-	if !c.form.composes || c.starter < 0 {
+	if c.form.compose == nil || c.starter < 0 {
 		return len(c.marks)
 	}
 	kept := 0
 	lastClass := -1
 	for _, mark := range c.marks {
-		class := int(combiningClass(mark))
+		class := int(combiningClass.get(mark))
 		if lastClass < class {
-			if composed, ok := compose(c.starter, mark); ok {
+			if composed, ok := c.form.compose(c.starter, mark); ok {
 				c.starter = composed
 				continue
 			}
@@ -346,9 +400,9 @@ func (c *composing) order() {
 	if len(c.marks) <= fewMarks {
 		for i := 1; i < len(c.marks); i++ {
 			mark := c.marks[i]
-			class := combiningClass(mark)
+			class := combiningClass.get(mark)
 			j := i
-			for j > 0 && combiningClass(c.marks[j-1]) > class {
+			for j > 0 && combiningClass.get(c.marks[j-1]) > class {
 				c.marks[j] = c.marks[j-1]
 				j--
 			}
@@ -358,14 +412,14 @@ func (c *composing) order() {
 	}
 	var starts [257]int
 	for _, mark := range c.marks {
-		starts[int(combiningClass(mark))+1]++
+		starts[int(combiningClass.get(mark))+1]++
 	}
 	for class := 1; class < len(starts); class++ {
 		starts[class] += starts[class-1]
 	}
 	ordered := make([]rune, len(c.marks))
 	for _, mark := range c.marks {
-		class := combiningClass(mark)
+		class := combiningClass.get(mark)
 		ordered[starts[class]] = mark
 		starts[class]++
 	}
@@ -414,10 +468,10 @@ func isHangulSyllable(r rune) bool {
 }
 
 // decomposeInto appends r's full decomposition to dst, and is false, dst as it was, where r is its
-// own: Hangul's arithmetic split, or the tables followed as far as they go, since a decomposition
-// may map to code points that decompose themselves. With compatibility the compatibility mappings
-// are followed as well.
-func decomposeInto(dst []rune, r rune, compatibility bool) ([]rune, bool) {
+// own: Hangul's arithmetic split, or the one-step decompositions followed as far as they go, since
+// a decomposition may map to code points that decompose themselves. With compatibility not nil the
+// compatibility mappings are followed as well.
+func decomposeInto(dst []rune, r rune, compatibility *mapping) ([]rune, bool) {
 	if isHangulSyllable(r) {
 		index := r - hangulSBase
 		dst = append(dst, hangulLBase+index/hangulNCount, hangulVBase+(index%hangulNCount)/hangulTCount)
@@ -439,30 +493,25 @@ func decomposeInto(dst []rune, r rune, compatibility bool) ([]rune, bool) {
 	return dst, true
 }
 
-// decompositionOf is r's one-step decomposition by canonicalDecomposition, or with compatibility by
-// compatibilityDecomposition as well, read where decompositionPositionPages says it is; nil where
-// it has none.
-func decompositionOf(r rune, compatibility bool) []rune {
-	at := int(decompositionPositionPages[int(decompositionPositionBlocks[r>>8])<<8|int(r&0xFF)])
+// decompositionOf is r's one-step decomposition by canonicalDecomposition, or where compatibility
+// is not nil by compatibility as well, read where decompositionPosition says it is; nil where it
+// has none.
+func decompositionOf(r rune, compatibility *mapping) []rune {
+	at := int(decompositionPosition.get(r))
 	switch {
 	case at == 0:
 		return nil
 	case at <= len(canonicalDecomposition):
 		return canonicalDecomposition[at-1].to
-	case compatibility:
-		return compatibilityDecomposition[at-len(canonicalDecomposition)-1].to
+	case compatibility != nil:
+		return (*compatibility)[at-len(canonicalDecomposition)-1].to
 	}
 	return nil
 }
 
-// combiningClass is r's canonical combining class: 0 for a starter, and for a mark the class
-// canonical ordering sorts it by. No Hangul jamo or syllable has one other than 0.
-func combiningClass(r rune) uint8 {
-	return combiningClassPages[int(combiningClassBlocks[r>>8])<<8|int(r&0xFF)]
-}
-
 // compose is the primary composite of starter followed by r, and false where the pair does not
-// compose: Hangul's L+V and LV+T, or compositionCells at the row of starter and the column of r.
+// compose: Hangul's L+V and LV+T, or compositionPairs in the row of starter, found by the column
+// of r.
 func compose(starter, r rune) (rune, bool) {
 	if starter >= hangulLBase && starter < hangulLBase+hangulLCount &&
 		r >= hangulVBase && r < hangulVBase+hangulVCount {
@@ -472,13 +521,16 @@ func compose(starter, r rune) (rune, bool) {
 		r > hangulTBase && r < hangulTBase+hangulTCount {
 		return starter + (r - hangulTBase), true
 	}
-	row := int(compositionFirstPages[int(compositionFirstBlocks[starter>>8])<<8|int(starter&0xFF)])
-	column := int(compositionSecondPages[int(compositionSecondBlocks[r>>8])<<8|int(r&0xFF)])
+	row := int(compositionFirst.get(starter))
+	column := uint32(compositionSecond.get(r))
 	if row == 0 || column == 0 {
 		return 0, false
 	}
-	if at := compositionCells[(row-1)*compositionColumns+column-1]; at != 0 {
-		return composites[at-1], true
+	// A row is a few pairs, so it is read through rather than searched.
+	for _, pair := range compositionPairs[compositionRows[row-1]:compositionRows[row]] {
+		if pair&0xFF == column {
+			return rune(pair >> 8), true
+		}
 	}
 	return 0, false
 }

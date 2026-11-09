@@ -49,6 +49,8 @@ final class GoEmitter {
         mapping(out, "finalSigmaMapping",
                 "the lowercase mapping that replaces lowerMapping's at the end of a cased run (Final_Sigma)",
                 casing.finalSigma());
+        ascii(out, "lowerASCII", "the lowercase mapping", casing.lower(), casing.finalSigma());
+        ascii(out, "upperASCII", "the uppercase mapping", casing.upper(), null);
         paged(out, "caseContext", "for each code point, a bit each for what Final_Sigma asks of it: 1 where it is"
                 + " Cased, 2 where it is Case_Ignorable, and 4 where finalSigmaMapping names it.",
                 model.byCodePoint().caseContext(), "uint8");
@@ -92,27 +94,23 @@ final class GoEmitter {
 
         UcdModel.Composing composing = model.byCodePoint().composing();
         paged(out, "compositionFirst", "for each code point, 0 where it is the first member of no primary"
-                + " composite, and otherwise one more than its row of compositionCells.", composing.firsts(), "uint16");
+                + " composite, and otherwise one more than its row of compositionRows.", composing.firsts(), "uint16");
         paged(out, "compositionSecond", "for each code point, 0 where it is the second member of no primary"
-                + " composite, and otherwise one more than its column of compositionCells. A starter before a"
+                + " composite, and otherwise its column of compositionPairs, counted from 1. A starter before a"
                 + " code point may compose with it by the table where and only where this is not 0.",
                 composing.seconds(), "uint8");
-        comment(out, "compositionColumns is how many second members there are, the length of a row of"
-                + " compositionCells.");
-        out.append("const compositionColumns = ").append(composing.columns()).append("\n\n");
-        comment(out, "compositionCells is, at row*compositionColumns+column, 0 where the pair does not compose, and"
-                + " otherwise one more than where the composite is in composites. Hangul's, which are"
-                + " arithmetic, are not here.");
-        if (composing.composites().length > 0xFFFF) {
-            throw new IllegalStateException("compositionCells does not fit the array it is written as");
-        }
-        out.append("var compositionCells = [").append(composing.cells().length).append("]uint16{\n");
-        values(out, composing.cells(), 4);
+        comment(out, "compositionRows is where each row of compositionPairs begins, at the row of the first member"
+                + " as compositionFirst numbers it, less 1; the row ends where the next begins, and the last entry"
+                + " is the number of pairs.");
+        out.append("var compositionRows = [").append(composing.rowStarts().length).append("]uint16{\n");
+        values(out, composing.rowStarts(), 4);
         out.append("}\n\n");
-        comment(out, "composites is the primary composites, in order of code point (" + composing.composites().length
-                + ").");
-        out.append("var composites = [").append(composing.composites().length).append("]rune{\n");
-        values(out, composing.composites(), 5);
+        comment(out, "compositionPairs is the pairs that compose, " + composing.pairs().length + " of them, the pairs"
+                + " of a first member together and in order of the column of the second member, as compositionSecond"
+                + " numbers it: each is the composite's code point shifted left by eight, and the column. Hangul's,"
+                + " which are arithmetic, are not here.");
+        out.append("var compositionPairs = [").append(composing.pairs().length).append("]uint32{\n");
+        values(out, composing.pairs(), 6);
         out.append("}\n\n");
 
         out.append("// For each form, the least code point that is not a starter or whose quick check for the\n");
@@ -207,34 +205,62 @@ final class GoEmitter {
     }
 
     /**
-     * {@code table} as two arrays, {@code <name>Blocks} and {@code <name>Pages}, the pages' values
-     * of type {@code type}: the value of {@code r} is at
-     * {@code <name>Pages[int(<name>Blocks[r>>8])<<8|int(r&0xFF)]}.
+     * {@code table} as a {@code paged}, whose blocks and pages are slice literals of the numbers they
+     * hold, of type {@code type} for the pages' values: read by {@code <name>.get(r)}.
      */
     private static void paged(StringBuilder out, String name, String what, PagedTable table, String type) {
         long most = type.equals("uint8") ? 0xFF : 0xFFFF;
         if (table.pages().size() > 0x100 || table.greatest() > most) {
             throw new IllegalStateException(name + " does not fit the arrays it is written as");
         }
-        comment(out, name + "Blocks and " + name + "Pages are " + what + " The value of r is at "
-                + name + "Pages[int(" + name + "Blocks[r>>" + PagedTable.SHIFT + "])<<" + PagedTable.SHIFT
-                + "|int(r&0x" + UcdModel.hex(PagedTable.PAGE - 1) + ")]: each block of " + PagedTable.PAGE
-                + " code points has the page of its values, and blocks that hold the same values share one ("
-                + table.pages().size() + " pages).");
-        out.append("var ").append(name).append("Blocks = [").append(table.blocks().length).append("]uint8{\n");
-        values(out, table.blocks(), 2);
-        out.append("}\n\n");
-        int[] values = table.values();
-        out.append("var ").append(name).append("Pages = [").append(values.length).append(']').append(type)
-                .append("{\n");
-        values(out, values, type.equals("uint8") ? 2 : 4);
+        comment(out, name + " is " + what + " Held in pages of " + PagedTable.PAGE + " code points: the value of r"
+                + " is at pages[int(blocks[r>>" + PagedTable.SHIFT + "])<<" + PagedTable.SHIFT + "|int(r&0x"
+                + UcdModel.hex(PagedTable.PAGE - 1) + ")], each block of " + PagedTable.PAGE + " code points has"
+                + " the page of its values, and blocks that hold the same values share one ("
+                + table.pages().size() + " pages). Read by " + name + ".get(r).");
+        out.append("var ").append(name).append(" = paged[").append(type).append("]{\n");
+        out.append("\tblocks: []uint8{\n");
+        values(out, table.blocks(), 2, 2);
+        out.append("\t},\n");
+        out.append("\tpages: []").append(type).append("{\n");
+        values(out, table.values(), type.equals("uint8") ? 2 : 4, 2);
+        out.append("\t},\n}\n\n");
+    }
+
+    /**
+     * What each ASCII character becomes under {@code mapping}, where that is one ASCII character and
+     * {@code exceptions} does not name it, and -1 where the tables have to be asked: text is mapped a
+     * byte at a time through this, and what it does not settle is asked of the tables.
+     */
+    private static void ascii(StringBuilder out, String name, String what, UcdModel.CodePointMapping mapping,
+                              UcdModel.CodePointMapping exceptions) {
+        comment(out, name + " is what each ASCII character becomes in " + what + ", where that is one ASCII"
+                + " character" + (exceptions == null ? "" : " and finalSigmaMapping does not name it")
+                + ", and -1 where the tables are asked.");
+        out.append("var ").append(name).append(" = [128]int16{\n");
+        for (int i = 0; i < 128; i += 16) {
+            out.append('\t');
+            for (int c = i; c < i + 16; c++) {
+                int[] to = mapping.entries().get(c);
+                int mapped = exceptions != null && exceptions.entries().containsKey(c) ? -1
+                        : to == null ? c
+                        : to.length == 1 && to[0] < 128 ? to[0] : -1;
+                out.append(c > i ? " " : "").append(mapped).append(',');
+            }
+            out.append('\n');
+        }
         out.append("}\n\n");
     }
 
     /** {@code values} as hex literals of {@code digits} digits, sixteen to a line. */
     private static void values(StringBuilder out, int[] values, int digits) {
+        values(out, values, digits, 1);
+    }
+
+    /** {@code values} as hex literals of {@code digits} digits, sixteen to a line, each line {@code tabs} deep. */
+    private static void values(StringBuilder out, int[] values, int digits, int tabs) {
         for (int i = 0; i < values.length; i += 16) {
-            out.append('\t');
+            out.append("\t".repeat(tabs));
             for (int j = i; j < Math.min(i + 16, values.length); j++) {
                 out.append(j > i ? " " : "").append(String.format("0x%0" + digits + "X,", values[j]));
             }

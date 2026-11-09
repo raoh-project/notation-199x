@@ -1,5 +1,17 @@
 package notation199x
 
+// paged is a value for every code point, held in pages of 256 code points: a code point's block of
+// 256 has the page that holds its values, and blocks that hold the same values share one.
+type paged[V uint8 | uint16] struct {
+	blocks []uint8
+	pages  []V
+}
+
+// get is the value of r.
+func (p *paged[V]) get(r rune) V {
+	return p.pages[int(p.blocks[uint32(r)>>8])<<8|int(r&0xFF)]
+}
+
 // mapping is a code point and the code points it maps to, sorted by the code point, as the
 // generated tables hold a case mapping or a decomposition.
 type mapping []mapped
