@@ -34,6 +34,10 @@ record SparseComposition(PagedTable firsts, PagedTable seconds, int[] rowStarts,
      *  Unicode version with more second members than that is a change of this and of each reader. */
     static final int COLUMN_BITS = 8;
 
+    /** The greatest row start there is room for: an emitter holds them in sixteen bits, a {@code u16}
+     *  or a {@code uint16} or a code unit of a string, which is as many pairs as there are. */
+    static final int MOST_PAIRS = 0xFFFF;
+
     /**
      * The layout of {@code compositions}.
      *
@@ -53,13 +57,27 @@ record SparseComposition(PagedTable firsts, PagedTable seconds, int[] rowStarts,
             throw new IllegalStateException(columns.size() + " second members of a composition do not fit the "
                     + COLUMN_BITS + " bits of a column, counted from 1");
         }
+        if (compositions.entries().size() > MOST_PAIRS) {
+            throw new IllegalStateException(compositions.entries().size() + " compositions do not fit the "
+                    + "sixteen bits of the start of a row");
+        }
         // For each row, the composite of each column, in order of column.
         List<SortedMap<Integer, Integer>> byRow = new ArrayList<>();
         for (int row = 0; row < rows.size(); row++) {
             byRow.add(new TreeMap<>());
         }
-        compositions.entries().forEach((composite, pair) ->
-                byRow.get(rows.get(pair[0])).put(columns.get(pair[1]) + 1, composite));
+        compositions.entries().forEach((composite, pair) -> {
+            if (composite >>> (Integer.SIZE - COLUMN_BITS) != 0) {
+                throw new IllegalStateException("U+" + UcdModel.hex(composite) + " does not fit above the "
+                        + COLUMN_BITS + " bits of a column in the 32 bits of a pair");
+            }
+            Integer other = byRow.get(rows.get(pair[0])).put(columns.get(pair[1]) + 1, composite);
+            if (other != null) {
+                throw new IllegalStateException("U+" + UcdModel.hex(pair[0]) + " and U+" + UcdModel.hex(pair[1])
+                        + " compose to both U+" + UcdModel.hex(other) + " and U+" + UcdModel.hex(composite)
+                        + ", where a pair holds one composite");
+            }
+        });
         int[] rowStarts = new int[rows.size() + 1];
         int[] pairs = new int[compositions.entries().size()];
         int at = 0;
