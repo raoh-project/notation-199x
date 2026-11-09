@@ -222,11 +222,14 @@ fn stable_up_to<const COMPAT: bool, const COMPOSE: bool>(
         let bytes = &text.as_bytes()[..scan_stop(text, at, left, count)];
         while at < bytes.len() {
             // Every form's trivial limit is past ASCII, so a byte below 0x80 is a stable starter.
-            if bytes[at] < 0x80 {
-                last = at;
-                at += 1;
-                count += 1;
-                continue;
+            let run = ascii_run(&bytes[at..]);
+            if run > 0 {
+                at += run;
+                count += run;
+                last = at - 1;
+                if at == bytes.len() {
+                    break;
+                }
             }
             let c = text[at..]
                 .chars()
@@ -241,6 +244,23 @@ fn stable_up_to<const COMPAT: bool, const COMPOSE: bool>(
         }
     }
     (at, count, last)
+}
+
+/// How many bytes `bytes` begins with that are below 0x80, which are as many code points: eight at a
+/// time while eight are left, and the rest one at a time.
+fn ascii_run(bytes: &[u8]) -> usize {
+    let mut at = 0;
+    for chunk in bytes.as_chunks::<8>().0 {
+        let word = u64::from_le_bytes(*chunk);
+        if word & 0x8080_8080_8080_8080 != 0 {
+            break;
+        }
+        at += 8;
+    }
+    at + bytes[at..]
+        .iter()
+        .position(|&byte| byte >= 0x80)
+        .unwrap_or(bytes.len() - at)
 }
 
 /// How far a scan of `text` from byte `at`, which may go past one more than `left` code points and
@@ -810,6 +830,31 @@ mod tests {
             normalize(Form::Nfc, &format!("{japanese}か\u{3099}{japanese}")),
             format!("{japanese}が{japanese}")
         );
+    }
+
+    /// A run of ASCII is as long as the bytes below 0x80 it begins with, wherever a byte past ASCII
+    /// comes and however long the run is.
+    #[test]
+    fn an_ascii_run_ends_at_the_first_byte_past_ascii() {
+        let mut seed = 7u64;
+        for length in 0..40 {
+            for _ in 0..200 {
+                let bytes: Vec<u8> = (0..length)
+                    .map(|_| {
+                        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                        let byte = (seed >> 33) as u8;
+                        // Mostly ASCII, so that runs are long and every place gets a first byte past it.
+                        if (seed >> 50).is_multiple_of(9) {
+                            byte | 0x80
+                        } else {
+                            byte & 0x7F
+                        }
+                    })
+                    .collect();
+                let expected = bytes.iter().position(|&b| b >= 0x80).unwrap_or(bytes.len());
+                assert_eq!(ascii_run(&bytes), expected, "{bytes:?}");
+            }
+        }
     }
 
     /// The compile-time forms answer what the form as a value answers, in whole, within a bound and
