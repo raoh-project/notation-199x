@@ -23,32 +23,77 @@ pub enum Form {
 }
 
 impl Form {
-    fn compatibility(self) -> bool {
-        matches!(self, Form::Nfkc | Form::Nfkd)
+    /// Where the form is a compile-time choice, which a program that asks for one form only is
+    /// linked with: the tables of the forms it never asks for are not reached.
+    fn on<R>(
+        self,
+        nfc: impl FnOnce() -> R,
+        nfd: impl FnOnce() -> R,
+        nfkc: impl FnOnce() -> R,
+        nfkd: impl FnOnce() -> R,
+    ) -> R {
+        match self {
+            Form::Nfc => nfc(),
+            Form::Nfd => nfd(),
+            Form::Nfkc => nfkc(),
+            Form::Nfkd => nfkd(),
+        }
+    }
+}
+
+/// A normalization form fixed at compile time: `COMPAT` where it decomposes by the compatibility
+/// mappings as well as the canonical ones, and `COMPOSE` where it composes canonically after.
+///
+/// A program that asks only for [`Nfc`] or [`Nfd`] never names the compatibility mappings, and one
+/// that asks only for [`Nfd`] or [`Nfkd`] never names the composition tables, so a statically linked
+/// program carries only the tables its forms reach. [`normalize`], [`normalize_within`] and
+/// [`append_normalized`] take the form as a value, and so reach the tables of all four.
+pub struct Normalizer<const COMPAT: bool, const COMPOSE: bool>;
+
+/// Canonical decomposition, then canonical composition.
+pub type Nfc = Normalizer<false, true>;
+/// Canonical decomposition.
+pub type Nfd = Normalizer<false, false>;
+/// Compatibility decomposition, then canonical composition.
+pub type Nfkc = Normalizer<true, true>;
+/// Compatibility decomposition.
+pub type Nfkd = Normalizer<true, false>;
+
+impl<const COMPAT: bool, const COMPOSE: bool> Normalizer<COMPAT, COMPOSE> {
+    /// [`normalize`] in this form.
+    pub fn normalize(text: &str) -> String {
+        normalized::<false, COMPAT, COMPOSE>(text, usize::MAX)
+            .expect("no text is longer than usize::MAX scalar values")
     }
 
-    fn composes(self) -> bool {
-        matches!(self, Form::Nfc | Form::Nfkc)
+    /// [`normalize_within`] in this form.
+    pub fn normalize_within(text: &str, longest: usize) -> Option<String> {
+        normalized::<true, COMPAT, COMPOSE>(text, longest)
+    }
+
+    /// [`append_normalized`] in this form.
+    pub fn append(text: &mut String, next: &str) {
+        append_in::<COMPAT, COMPOSE>(text, next)
     }
 
     /// Every code point below this is a stable starter of the form, which is known without asking a
     /// table.
-    fn trivial_limit(self) -> char {
-        match self {
-            Form::Nfc => NFC_TRIVIAL_LIMIT,
-            Form::Nfd => NFD_TRIVIAL_LIMIT,
-            Form::Nfkc => NFKC_TRIVIAL_LIMIT,
-            Form::Nfkd => NFKD_TRIVIAL_LIMIT,
+    const fn trivial_limit() -> char {
+        match (COMPAT, COMPOSE) {
+            (false, true) => NFC_TRIVIAL_LIMIT,
+            (false, false) => NFD_TRIVIAL_LIMIT,
+            (true, true) => NFKC_TRIVIAL_LIMIT,
+            (true, false) => NFKD_TRIVIAL_LIMIT,
         }
     }
 
     /// The form's bit of [`STABLE_PAGES`].
-    fn stable_bit(self) -> u8 {
-        match self {
-            Form::Nfc => 1,
-            Form::Nfd => 2,
-            Form::Nfkc => 4,
-            Form::Nfkd => 8,
+    const fn stable_bit() -> u8 {
+        match (COMPAT, COMPOSE) {
+            (false, true) => 1,
+            (false, false) => 2,
+            (true, true) => 4,
+            (true, false) => 8,
         }
     }
 }
@@ -60,8 +105,12 @@ impl Form {
 /// canonically wherever nothing blocks it. The compatibility forms decompose by the compatibility
 /// mappings as well as the canonical ones; composition is canonical in every form.
 pub fn normalize(form: Form, text: &str) -> String {
-    normalized::<false>(form, text, usize::MAX)
-        .expect("no text is longer than usize::MAX scalar values")
+    form.on(
+        || Nfc::normalize(text),
+        || Nfd::normalize(text),
+        || Nfkc::normalize(text),
+        || Nfkd::normalize(text),
+    )
 }
 
 /// [`normalize`] where the answer is no longer than `longest` scalar values, and `None` where it is
@@ -93,12 +142,20 @@ pub fn normalize(form: Form, text: &str) -> String {
 /// loop turns on the text. The loop of [`normalized`] goes once round for each run the algorithm
 /// goes over.
 pub fn normalize_within(form: Form, text: &str, longest: usize) -> Option<String> {
-    normalized::<true>(form, text, longest)
+    form.on(
+        || Nfc::normalize_within(text, longest),
+        || Nfd::normalize_within(text, longest),
+        || Nfkc::normalize_within(text, longest),
+        || Nfkd::normalize_within(text, longest),
+    )
 }
 
 /// [`normalize_within`], which asks nothing of `longest` before it holds a mark where `BOUNDED` is
 /// false: [`normalize`] does not pay for what only a bound needs.
-fn normalized<const BOUNDED: bool>(form: Form, text: &str, longest: usize) -> Option<String> {
+fn normalized<const BOUNDED: bool, const COMPAT: bool, const COMPOSE: bool>(
+    text: &str,
+    longest: usize,
+) -> Option<String> {
     // The answer up to `kept`, where a run has changed what it went over.
     let mut out: Option<String> = None;
     let mut kept = 0;
@@ -107,11 +164,12 @@ fn normalized<const BOUNDED: bool>(form: Form, text: &str, longest: usize) -> Op
     // starters read since, the last of them at `start` where `start` is before `at`.
     let mut before = 0;
     let mut read = 0;
-    let mut composing: Option<Composing<BOUNDED>> = None;
+    let mut composing: Option<Composing<BOUNDED, COMPAT, COMPOSE>> = None;
     let mut at = 0;
     while at < text.len() {
         // What is written and read is never more than `longest`, so this does not wrap.
-        let (stable, count, last) = stable_up_to(form, text, at, longest - before - read);
+        let (stable, count, last) =
+            stable_up_to::<COMPAT, COMPOSE>(text, at, longest - before - read);
         if stable > at {
             read += count;
             if before + read > longest {
@@ -126,7 +184,7 @@ fn normalized<const BOUNDED: bool>(form: Form, text: &str, longest: usize) -> Op
         if start < at {
             read -= 1;
         }
-        let composing = composing.get_or_insert_with(|| Composing::new(form, longest));
+        let composing = composing.get_or_insert_with(|| Composing::new(longest));
         let end = composing.run(text, start, at, before + read)?;
         if composing.out != text[start..end] {
             let out = out.get_or_insert_with(|| String::with_capacity(text.len().min(longest)));
@@ -152,9 +210,13 @@ fn normalized<const BOUNDED: bool>(form: Form, text: &str, longest: usize) -> Op
 /// there that is not one, or the end of the text, or where it has gone past one more than `left` of
 /// them; how many it went past; and where the last of them begins, which is `at` where there are
 /// none.
-fn stable_up_to(form: Form, text: &str, mut at: usize, left: usize) -> (usize, usize, usize) {
-    let limit = form.trivial_limit();
-    let bit = form.stable_bit();
+fn stable_up_to<const COMPAT: bool, const COMPOSE: bool>(
+    text: &str,
+    mut at: usize,
+    left: usize,
+) -> (usize, usize, usize) {
+    let limit = Normalizer::<COMPAT, COMPOSE>::trivial_limit();
+    let bit = Normalizer::<COMPAT, COMPOSE>::stable_bit();
     let mut count = 0;
     let mut last = at;
     while at < text.len() && count <= left {
@@ -203,8 +265,11 @@ fn is_stable(bit: u8, c: char) -> bool {
 
 /// [`normalize_within`] worked out by the algorithm over the whole of `text`, whatever it is.
 #[cfg(test)]
-fn normalize_whole(form: Form, text: &str, longest: usize) -> Option<String> {
-    let mut composing = Composing::<true>::new(form, longest);
+fn normalize_whole<const COMPAT: bool, const COMPOSE: bool>(
+    text: &str,
+    longest: usize,
+) -> Option<String> {
+    let mut composing = Composing::<true, COMPAT, COMPOSE>::new(longest);
     composing.run(text, 0, text.len(), 0)?;
     Some(composing.out)
 }
@@ -225,9 +290,18 @@ fn normalize_whole(form: Form, text: &str, longest: usize) -> Option<String> {
 ///
 /// Where `text` or `next` is not in `form`, what `text` becomes is in no form this promises.
 pub fn append_normalized(form: Form, text: &mut String, next: &str) {
+    match form {
+        Form::Nfc => Nfc::append(text, next),
+        Form::Nfd => Nfd::append(text, next),
+        Form::Nfkc => Nfkc::append(text, next),
+        Form::Nfkd => Nfkd::append(text, next),
+    }
+}
+
+fn append_in<const COMPAT: bool, const COMPOSE: bool>(text: &mut String, next: &str) {
     let reach = next
         .char_indices()
-        .find(|&(_, c)| out_of_reach(form, c))
+        .find(|&(_, c)| out_of_reach::<COMPOSE>(c))
         .map_or(next.len(), |(at, _)| at);
     if reach == 0 {
         text.push_str(next);
@@ -240,19 +314,19 @@ pub fn append_normalized(form: Form, text: &mut String, next: &str) {
         .map_or(0, |(at, _)| at);
     let mut seam = text.split_off(from);
     seam.push_str(&next[..reach]);
-    text.push_str(&normalize(form, &seam));
+    text.push_str(&Normalizer::<COMPAT, COMPOSE>::normalize(&seam));
     text.push_str(&next[reach..]);
 }
 
 /// Whether nothing before `c` in a text in `form` is changed by what comes after `c`, nor `c` by
 /// what comes before it. See [`append_normalized`].
-fn out_of_reach(form: Form, c: char) -> bool {
+fn out_of_reach<const COMPOSE: bool>(c: char) -> bool {
     // Below U+0300 no code point is a mark, the second of a pair, or decomposes to either, which a
     // test holds of every one of them; most of what is joined starts there.
     if c < FIRST_IN_REACH {
         return true;
     }
-    out_of_reach_by_the_tables(form, c)
+    out_of_reach_by_the_tables::<COMPOSE>(c)
 }
 
 /// Every code point below this is out of reach in every form, as [`out_of_reach_by_the_tables`]
@@ -260,11 +334,11 @@ fn out_of_reach(form: Form, c: char) -> bool {
 const FIRST_IN_REACH: char = '\u{0300}';
 
 /// [`out_of_reach`] answered from the tables alone.
-fn out_of_reach_by_the_tables(form: Form, c: char) -> bool {
+fn out_of_reach_by_the_tables<const COMPOSE: bool>(c: char) -> bool {
     let head = canonical_head(c);
     combining_class(c) == 0
         && combining_class(head) == 0
-        && !(form.composes() && (composes_back_into(c) || composes_back_into(head)))
+        && !(COMPOSE && (composes_back_into(c) || composes_back_into(head)))
 }
 
 /// The first code point of `c`'s full canonical decomposition, which is `c` where it has none.
@@ -272,7 +346,7 @@ fn canonical_head(c: char) -> char {
     if let Some([Some(leading), ..]) = decompose_hangul(c) {
         return leading;
     }
-    match decomposition_of(c, false) {
+    match decomposition_of::<false>(c) {
         Some(mapping) => canonical_head(mapping[0]),
         None => c,
     }
@@ -304,10 +378,7 @@ fn composes_back_into(c: char) -> bool {
 /// marks but those it may compose with, which are no more than [`MOST_MARKS_COMPOSED`]. So a run
 /// holds no more than `longest` and [`MOST_MARKS_COMPOSED`] marks, whatever the length of the text.
 /// Where `BOUNDED` is false, `longest` is `usize::MAX`, which no text reaches, and it is not asked.
-struct Composing<const BOUNDED: bool> {
-    compatibility: bool,
-    composes: bool,
-    stable_bit: u8,
+struct Composing<const BOUNDED: bool, const COMPAT: bool, const COMPOSE: bool> {
     longest: usize,
     /// What [`Composing::run`] wrote, the run settled.
     out: String,
@@ -322,12 +393,11 @@ struct Composing<const BOUNDED: bool> {
     parts: Vec<char>,
 }
 
-impl<const BOUNDED: bool> Composing<BOUNDED> {
-    fn new(form: Form, longest: usize) -> Composing<BOUNDED> {
+impl<const BOUNDED: bool, const COMPAT: bool, const COMPOSE: bool>
+    Composing<BOUNDED, COMPAT, COMPOSE>
+{
+    fn new(longest: usize) -> Self {
         Composing {
-            compatibility: form.compatibility(),
-            composes: form.composes(),
-            stable_bit: form.stable_bit(),
             longest,
             out: String::new(),
             written: 0,
@@ -348,12 +418,12 @@ impl<const BOUNDED: bool> Composing<BOUNDED> {
         self.written = before;
         let mut end = text.len();
         for (offset, c) in text[start..].char_indices() {
-            if start + offset > at && is_stable(self.stable_bit, c) {
+            if start + offset > at && is_stable(Normalizer::<COMPAT, COMPOSE>::stable_bit(), c) {
                 end = start + offset;
                 break;
             }
             self.parts.clear();
-            decompose_into(&mut self.parts, c, self.compatibility);
+            decompose_into::<COMPAT>(&mut self.parts, c);
             for i in 0..self.parts.len() {
                 self.take(self.parts[i])?;
             }
@@ -373,7 +443,7 @@ impl<const BOUNDED: bool> Composing<BOUNDED> {
             return Some(());
         }
         self.settle();
-        if self.composes
+        if COMPOSE
             && self.marks.is_empty()
             && let Some(composed) = self.starter.and_then(|starter| compose(starter, c))
         {
@@ -392,7 +462,7 @@ impl<const BOUNDED: bool> Composing<BOUNDED> {
         if self.starter.is_none() {
             return marks;
         }
-        if self.composes {
+        if COMPOSE {
             return 1 + marks.saturating_sub(MOST_MARKS_COMPOSED);
         }
         1 + marks
@@ -405,7 +475,7 @@ impl<const BOUNDED: bool> Composing<BOUNDED> {
         if self.marks.len() > 1 {
             self.order();
         }
-        let Some(mut starter) = self.starter.filter(|_| self.composes) else {
+        let Some(mut starter) = self.starter.filter(|_| COMPOSE) else {
             return;
         };
         let mut kept = 0;
@@ -499,9 +569,9 @@ const fn combining_class(c: char) -> u8 {
     COMBINING_CLASS_PAGES[(COMBINING_CLASS_BLOCKS[c >> 8] as usize) << 8 | c & 0xFF]
 }
 
-/// `c`'s one-step decomposition by [`CANONICAL`], or where `compatibility` by [`COMPATIBILITY`] as
+/// `c`'s one-step decomposition by [`CANONICAL`], or where `COMPAT` by [`COMPATIBILITY`] as
 /// well, read where [`DECOMPOSITION_POSITION_PAGES`] says it is; `None` where it has none.
-fn decomposition_of(c: char, compatibility: bool) -> Option<&'static [char]> {
+fn decomposition_of<const COMPAT: bool>(c: char) -> Option<&'static [char]> {
     let cp = c as usize;
     let at = usize::from(
         DECOMPOSITION_POSITION_PAGES
@@ -510,7 +580,7 @@ fn decomposition_of(c: char, compatibility: bool) -> Option<&'static [char]> {
     match at {
         0 => None,
         at if at <= CANONICAL.len() => Some(CANONICAL[at - 1].1),
-        at if compatibility => Some(COMPATIBILITY[at - CANONICAL.len() - 1].1),
+        at if COMPAT => Some(COMPATIBILITY[at - CANONICAL.len() - 1].1),
         _ => None,
     }
 }
@@ -518,15 +588,15 @@ fn decomposition_of(c: char, compatibility: bool) -> Option<&'static [char]> {
 /// Pushes `c`'s full decomposition onto `parts`: Hangul's arithmetic, or the tables followed until
 /// nothing decomposes further, the compatibility mappings as well as the canonical ones where
 /// `compatibility`. A code point with none is its own.
-fn decompose_into(parts: &mut Vec<char>, c: char, compatibility: bool) {
+fn decompose_into<const COMPAT: bool>(parts: &mut Vec<char>, c: char) {
     if let Some(jamo) = decompose_hangul(c) {
         parts.extend(jamo.into_iter().flatten());
         return;
     }
-    match decomposition_of(c, compatibility) {
+    match decomposition_of::<COMPAT>(c) {
         Some(mapping) => {
             for &part in mapping {
-                decompose_into(parts, part, compatibility);
+                decompose_into::<COMPAT>(parts, part);
             }
         }
         None => parts.push(c),
@@ -651,15 +721,23 @@ mod tests {
         for c in (0..0x110000).filter_map(char::from_u32) {
             let cp = c as usize;
             assert_eq!(combining_class(c), classes[cp], "{c:?}");
-            for form in FORMS {
-                let stated = classes[cp] == 0 && not_yes[cp] & form.stable_bit() == 0;
-                assert_eq!(is_stable(form.stable_bit(), c), stated, "{c:?} in {form:?}");
+            for bit in [1, 2, 4, 8] {
+                let stated = classes[cp] == 0 && not_yes[cp] & bit == 0;
+                assert_eq!(is_stable(bit, c), stated, "{c:?} in the form of bit {bit}");
+            }
+            for (form, bit) in [
+                (Form::Nfc, Nfc::stable_bit()),
+                (Form::Nfd, Nfd::stable_bit()),
+                (Form::Nfkc, Nfkc::stable_bit()),
+                (Form::Nfkd, Nfkd::stable_bit()),
+            ] {
+                assert_eq!(bit, form.on(|| 1, || 2, || 4, || 8), "{form:?}");
             }
             // The table of where each decomposition is answers what the searched mappings do.
             let canonical = mapped(CANONICAL, c);
-            assert_eq!(decomposition_of(c, false), canonical, "{c:?}");
+            assert_eq!(decomposition_of::<false>(c), canonical, "{c:?}");
             assert_eq!(
-                decomposition_of(c, true),
+                decomposition_of::<true>(c),
                 canonical.or_else(|| mapped(COMPATIBILITY, c)),
                 "{c:?} with compatibility"
             );
@@ -727,7 +805,14 @@ mod tests {
                 }
             }
             for form in FORMS {
-                let whole = normalize_whole(form, &text, usize::MAX).unwrap();
+                let whole = form
+                    .on(
+                        || normalize_whole::<false, true>(&text, usize::MAX),
+                        || normalize_whole::<false, false>(&text, usize::MAX),
+                        || normalize_whole::<true, true>(&text, usize::MAX),
+                        || normalize_whole::<true, false>(&text, usize::MAX),
+                    )
+                    .unwrap();
                 assert_eq!(normalize(form, &text), whole, "{form:?} {text:?}");
                 let length = whole.chars().count();
                 for longest in length.saturating_sub(2)..=length + 1 {
@@ -748,13 +833,65 @@ mod tests {
         );
     }
 
+    /// The compile-time forms answer what the form as a value answers, in whole, within a bound and
+    /// appended.
+    #[test]
+    fn a_form_fixed_at_compile_time_is_the_form_as_a_value() {
+        let texts = [
+            "",
+            "abc",
+            "e\u{0301}",
+            "\u{FB01}\u{1E9B}\u{0323}",
+            "\u{1100}\u{1161}\u{11A8}",
+        ];
+        for text in texts {
+            for (form, normalized, within) in [
+                (
+                    Form::Nfc,
+                    Nfc::normalize(text),
+                    Nfc::normalize_within(text, 2),
+                ),
+                (
+                    Form::Nfd,
+                    Nfd::normalize(text),
+                    Nfd::normalize_within(text, 2),
+                ),
+                (
+                    Form::Nfkc,
+                    Nfkc::normalize(text),
+                    Nfkc::normalize_within(text, 2),
+                ),
+                (
+                    Form::Nfkd,
+                    Nfkd::normalize(text),
+                    Nfkd::normalize_within(text, 2),
+                ),
+            ] {
+                assert_eq!(normalize(form, text), normalized, "{form:?} {text:?}");
+                assert_eq!(normalize_within(form, text, 2), within, "{form:?} {text:?}");
+                let mut joined = String::from("e");
+                let mut by_form = joined.clone();
+                match form {
+                    Form::Nfc => Nfc::append(&mut joined, text),
+                    Form::Nfd => Nfd::append(&mut joined, text),
+                    Form::Nfkc => Nfkc::append(&mut joined, text),
+                    Form::Nfkd => Nfkd::append(&mut joined, text),
+                }
+                append_normalized(form, &mut by_form, text);
+                assert_eq!(joined, by_form, "{form:?} {text:?}");
+            }
+        }
+    }
+
     /// What [`out_of_reach`] answers without asking the tables is what the tables answer.
     #[test]
     fn every_code_point_below_the_first_in_reach_is_out_of_reach() {
         for c in '\0'..FIRST_IN_REACH {
-            for form in [Form::Nfc, Form::Nfd, Form::Nfkc, Form::Nfkd] {
-                assert!(out_of_reach_by_the_tables(form, c), "{c:?} in {form:?}");
-            }
+            assert!(out_of_reach_by_the_tables::<true>(c), "{c:?} composing");
+            assert!(
+                out_of_reach_by_the_tables::<false>(c),
+                "{c:?} not composing"
+            );
         }
     }
 
@@ -765,7 +902,7 @@ mod tests {
         let mut longest = 0;
         for c in '\0'..=char::MAX {
             parts.clear();
-            decompose_into(&mut parts, c, true);
+            decompose_into::<true>(&mut parts, c);
             longest = longest.max(parts.len());
         }
         assert_eq!(longest, LONGEST_DECOMPOSITION);
@@ -786,7 +923,7 @@ mod tests {
         ];
         let mut seed = 1u64;
         for length in 2..200 {
-            let mut composing = Composing::<false>::new(Form::Nfd, usize::MAX);
+            let mut composing = Composing::<false, false, false>::new(usize::MAX);
             for _ in 0..length {
                 seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
                 composing
