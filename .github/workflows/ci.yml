@@ -306,6 +306,7 @@ jobs:
       - name: Format and lint the benchmarks
         working-directory: rust/bench
         run: |
+          sh sync-lock.sh .
           cargo fmt --check
           cargo clippy --all-targets --locked -- -D warnings
       - name: Install Valgrind and the runner of the version the benchmarks name

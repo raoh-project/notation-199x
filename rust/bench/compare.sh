@@ -33,6 +33,7 @@ summary=${GITHUB_STEP_SUMMARY:-"$out/summary.md"}
 cleanup() {
   git worktree remove --force "$work/base" >/dev/null 2>&1 || true
   git worktree remove --force "$work/head" >/dev/null 2>&1 || true
+  rm -rf "${work:?}"
 }
 trap cleanup EXIT
 
@@ -49,6 +50,9 @@ git worktree add --detach "$work/head" "$head" >/dev/null
 # The instrument of HEAD, as it is committed, is what measures BASE.
 rm -rf "${work:?}/base/rust/bench"
 git archive "$head" rust/bench | tar -x -C "$work/base"
+# Each side has the version of the crate it is, in a lock file written beside one of them.
+sh rust/bench/sync-lock.sh "$work/base/rust/bench"
+sh rust/bench/sync-lock.sh "$work/head/rust/bench"
 
 mode=compared
 baseline_tree=$work/base
