@@ -595,11 +595,11 @@ public final class Normalization {
     }
 
     /** {@code cp}'s one-step decomposition by {@link NormalizationTables#DECOMP}, or with
-     *  {@code compatibility} by {@link NormalizationTables#COMPAT} as well, read where
-     *  {@link NormalizationTables#DECOMP_PAGES} says it is; null where it has none. */
+     *  {@code compatibility} by {@link NormalizationTables.Compatibility#COMPAT} as well, read where
+     *  {@link NormalizationTables#DECOMP_POSITION_PAGES} says it is; null where it has none. */
     static int @Nullable [] decomposition(int cp, boolean compatibility) {
-        int at = NormalizationTables.DECOMP_PAGES[(NormalizationTables.DECOMP_BLOCKS[cp >>> 8] & 0xFF) << 8
-                | cp & 0xFF];
+        int at = NormalizationTables.DECOMP_POSITION_PAGES[
+                (NormalizationTables.DECOMP_POSITION_BLOCKS[cp >>> 8] & 0xFF) << 8 | cp & 0xFF];
         int canonical = NormalizationTables.DECOMP.mapped().length;
         if (at == 0) {
             return null;
@@ -607,7 +607,7 @@ public final class Normalization {
         if (at <= canonical) {
             return NormalizationTables.DECOMP.mapped()[at - 1];
         }
-        return compatibility ? NormalizationTables.COMPAT.mapped()[at - canonical - 1] : null;
+        return compatibility ? NormalizationTables.Compatibility.COMPAT.mapped()[at - canonical - 1] : null;
     }
 
     /**
@@ -633,23 +633,23 @@ public final class Normalization {
 
     /** The primary composite of {@code starter} followed by {@code cp}, or -1 if the pair does not
      *  compose — Hangul's algorithmic L+V and LV+T composition, or
-     *  the pair among {@link NormalizationTables#COMPOSITION_PAIRS} in the row of {@code starter} with
+     *  the pair among {@link NormalizationTables.Composition#PAIRS} in the row of {@code starter} with
      *  the column of {@code cp}. */
     static int compose(int starter, int cp) {
         int hangul = composeHangul(starter, cp);
         if (hangul >= 0) {
             return hangul;
         }
-        int row = NormalizationTables.COMPOSITION_FIRST_PAGES[
-                (NormalizationTables.COMPOSITION_FIRST_BLOCKS[starter >>> 8] & 0xFF) << 8 | starter & 0xFF];
-        int column = NormalizationTables.COMPOSITION_SECOND_PAGES[
-                (NormalizationTables.COMPOSITION_SECOND_BLOCKS[cp >>> 8] & 0xFF) << 8 | cp & 0xFF] & 0xFF;
+        int row = NormalizationTables.Composition.FIRST_PAGES[
+                (NormalizationTables.Composition.FIRST_BLOCKS[starter >>> 8] & 0xFF) << 8 | starter & 0xFF];
+        int column = NormalizationTables.Composition.SECOND_PAGES[
+                (NormalizationTables.Composition.SECOND_BLOCKS[cp >>> 8] & 0xFF) << 8 | cp & 0xFF] & 0xFF;
         if (row == 0 || column == 0) {
             return -1;
         }
-        int[] pairs = NormalizationTables.COMPOSITION_PAIRS;
-        int low = NormalizationTables.COMPOSITION_ROWS[row - 1];
-        int high = NormalizationTables.COMPOSITION_ROWS[row] - 1;
+        int[] pairs = NormalizationTables.Composition.PAIRS;
+        int low = NormalizationTables.Composition.ROWS[row - 1];
+        int high = NormalizationTables.Composition.ROWS[row] - 1;
         while (low <= high) {
             int mid = (low + high) >>> 1;
             int found = pairs[mid] & 0xFF;

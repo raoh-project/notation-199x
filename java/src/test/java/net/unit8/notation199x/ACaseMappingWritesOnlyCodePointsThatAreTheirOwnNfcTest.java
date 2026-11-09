@@ -21,7 +21,7 @@ class ACaseMappingWritesOnlyCodePointsThatAreTheirOwnNfcTest {
     @Test
     void everyMarkAMappingWritesIsItsOwnNfc() {
         Set<String> marksNotTheirOwn = new TreeSet<>();
-        for (CaseTables.Mapping table : List.of(CaseTables.LOWER, CaseTables.UPPER, CaseTables.FINAL_SIGMA)) {
+        for (CaseTables.Mapping table : List.of(CaseTables.Lower.MAPPING, CaseTables.Upper.MAPPING, CaseTables.Lower.FINAL_SIGMA)) {
             for (int[] written : table.mapped()) {
                 for (int cp : written) {
                     String alone = Character.toString(cp);

@@ -64,37 +64,60 @@ final class JavaEmitter {
         out.append(CASE_DECODERS);
         out.append(PAGED_DECODERS);
 
-        for (String[] each : new String[][] {{"LOWER", "lowercase"}, {"UPPER", "uppercase"}}) {
-            UcdModel.CodePointMapping mapping = each[0].equals("LOWER") ? casing.lower() : casing.upper();
-            out.append("    /** Unicode ").append(version).append("'s untailored full ").append(each[1])
-                    .append(" mapping (")
-                    .append(mapping.entries().size())
-                    .append(" code points with a non-identity mapping; every other code point maps to itself). */\n");
-            out.append("    static final Mapping ").append(each[0]).append(" = decodeMapping(\"")
-                    .append(mapping(mapping)).append("\");\n\n");
-        }
-
-        out.append("    /** Code points whose {@link #LOWER} mapping is the untailored default, overridden by this\n");
-        out.append("     *  mapping's result when the code point sits at the end of a cased run (Unicode's\n");
-        out.append("     *  {@code Final_Sigma} condition), as Unicode ").append(version).append(" states it (")
+        StringBuilder lower = new StringBuilder();
+        mappingField(lower, "MAPPING", "Unicode " + version + "'s untailored full lowercase mapping", casing.lower(),
+                "every other code point maps to itself");
+        lower.append("    /** Code points whose {@link #MAPPING} is the untailored default, overridden by this\n");
+        lower.append("     *  mapping's result when the code point sits at the end of a cased run (Unicode's\n");
+        lower.append("     *  {@code Final_Sigma} condition), as Unicode ").append(version).append(" states it (")
                 .append(codePoints(casing.finalSigma().entries().size())).append("). A mapping here may be\n");
-        out.append("     *  of any length; it is the same {@link Mapping} shape {@link #LOWER}/{@link #UPPER} use,\n");
-        out.append("     *  read the same way. */\n");
-        out.append("    static final Mapping FINAL_SIGMA = decodeMapping(\"").append(mapping(casing.finalSigma()))
+        lower.append("     *  of any length; it is the same {@link Mapping} shape {@link #MAPPING} is, read the same\n");
+        lower.append("     *  way. */\n");
+        lower.append("    static final Mapping FINAL_SIGMA = decodeMapping(\"").append(mapping(casing.finalSigma()))
                 .append("\");\n\n");
-
-        paged(out, "CONTEXT", "For each code point, a bit each for what {@code Final_Sigma} asks of it: 1 where"
+        paged(lower, "CONTEXT", "For each code point, a bit each for what {@code Final_Sigma} asks of it: 1 where"
                 + " it is {@code Cased}, 2 where it is {@code Case_Ignorable}, and 4 where {@link #FINAL_SIGMA}"
                 + " names it.", model.byCodePoint().caseContext(), false);
+        paged(lower, "POSITION", "For each code point, 0 where {@link #MAPPING} maps it to itself, and otherwise one"
+                + " more than where it is among {@link #MAPPING}'s code points. No code point"
+                + " {@link #FINAL_SIGMA} names is 0.", model.byCodePoint().lower(), true);
+        holder(out, "Lower", "The tables of lowercasing, which a program that lowercases nothing never loads.",
+                lower);
 
-        paged(out, "LOWER", "For each code point, 0 where {@link #LOWER} maps it to itself, and otherwise one more"
-                + " than where it is among {@link #LOWER}'s code points. No code point {@link #FINAL_SIGMA}"
-                + " names is 0.", model.byCodePoint().lower(), true);
-        paged(out, "UPPER", "For each code point, 0 where {@link #UPPER} maps it to itself, and otherwise one more"
-                + " than where it is among {@link #UPPER}'s code points.", model.byCodePoint().upper(), true);
+        StringBuilder upper = new StringBuilder();
+        mappingField(upper, "MAPPING", "Unicode " + version + "'s untailored full uppercase mapping", casing.upper(),
+                "every other code point maps to itself");
+        paged(upper, "POSITION", "For each code point, 0 where {@link #MAPPING} maps it to itself, and otherwise one"
+                + " more than where it is among {@link #MAPPING}'s code points.", model.byCodePoint().upper(), true);
+        holder(out, "Upper", "The tables of uppercasing, which a program that uppercases nothing never loads.",
+                upper);
 
         out.append("}\n");
         return out.toString();
+    }
+
+    /**
+     * {@code members} as a class of its own, nested in the generated one: the members are loaded when
+     * the class is first read, and not with the class around it.
+     */
+    private static void holder(StringBuilder out, String name, String doc, StringBuilder members) {
+        out.append("    /** ").append(doc).append(" */\n");
+        out.append("    static final class ").append(name).append(" {\n\n");
+        out.append("        private ").append(name).append("() {}\n\n");
+        for (String line : members.toString().stripTrailing().split("\n")) {
+            out.append(line.isEmpty() ? line : "    " + line).append('\n');
+        }
+        out.append("    }\n\n");
+    }
+
+    /** {@code mapping} as a {@code Mapping} field of {@code name}, whose doc says {@code what} it is, then
+     *  {@code rest}. */
+    private static void mappingField(StringBuilder out, String name, String what, UcdModel.CodePointMapping mapping,
+                                     String rest) {
+        docComment(out, what + " (" + codePoints(mapping.entries().size()) + "); "
+                + rest + ".");
+        out.append("    static final Mapping ").append(name).append(" = decodeMapping(")
+                .append(literal(mapping(mapping))).append(");\n\n");
     }
 
     /**
@@ -205,24 +228,13 @@ final class JavaEmitter {
         out.append(NORMALIZATION_DECODERS);
         out.append(PAGED_DECODERS);
 
-        UcdModel.CodePointMapping canonical = decomposition.canonical();
-        out.append("    /** Unicode ").append(version).append("'s one-step canonical decomposition")
-                .append(" mapping (").append(canonical.entries().size())
-                .append(" code points); every other code point has none. A compatibility ({@code <tag>})")
-                .append(" decomposition is a different question and is not here. */\n");
-        out.append("    static final Mapping DECOMP = decodeMapping(").append(literal(mapping(canonical))).append(");\n\n");
+        mappingField(out, "DECOMP", "Unicode " + version + "'s one-step canonical decomposition mapping",
+                decomposition.canonical(), "every other code point has none. A compatibility ({@code <tag>})"
+                + " decomposition is a different question and is not here");
 
-        UcdModel.CodePointMapping compatibility = decomposition.compatibility();
-        out.append("    /** Unicode ").append(version).append("'s one-step compatibility decomposition")
-                .append(" mapping (").append(compatibility.entries().size())
-                .append(" code points), the {@code <tag>} dropped. A code point is in this or in")
-                .append(" {@link #DECOMP} or in neither. */\n");
-        out.append("    static final Mapping COMPAT = decodeMapping(").append(literal(mapping(compatibility)))
-                .append(");\n\n");
-
-        paged(out, "DECOMP", "For each code point, 0 where it has no decomposition, one more than where it is"
+        paged(out, "DECOMP_POSITION", "For each code point, 0 where it has no decomposition, one more than where it is"
                 + " among {@link #DECOMP}'s code points where it has a canonical one, and otherwise the number of"
-                + " those and one more than where it is among {@link #COMPAT}'s.",
+                + " those and one more than where it is among {@link Compatibility#COMPAT}'s.",
                 model.byCodePoint().decomposition(), true);
         paged(out, "CCC", "Unicode " + version + "'s canonical combining class of each code point, 0 for a"
                 + " starter.", model.byCodePoint().combiningClass(), false);
@@ -231,26 +243,36 @@ final class JavaEmitter {
                 + " NFKC 4 and NFKD 8. A stable starter is a starter whose quick check for the form is Yes. Text"
                 + " made only of them is its own normalization in the form, and one of them ends what comes before"
                 + " it: no mark after it is put in order before it or composes with a starter before it, and it"
-                + " composes with nothing before it, since what does is Maybe, which the generator checks.", model.byCodePoint().stableStarters(), false);
+                + " composes with nothing before it, since what does is Maybe, which the generator checks.",
+                model.byCodePoint().stableStarters(), false);
+
+        StringBuilder compatibility = new StringBuilder();
+        mappingField(compatibility, "COMPAT", "Unicode " + version + "'s one-step compatibility decomposition mapping",
+                decomposition.compatibility(), "the {@code <tag>} dropped. A code point is in this or in"
+                + " {@link NormalizationTables#DECOMP} or in neither");
+        holder(out, "Compatibility", "The compatibility mappings, which a program that normalizes in no compatibility"
+                + " form never loads.", compatibility);
 
         UcdModel.Composing composing = model.byCodePoint().composing();
-        paged(out, "COMPOSITION_FIRST", "For each code point, 0 where it is the first member of no primary"
-                + " composite, and otherwise one more than its row of {@link #COMPOSITION_ROWS}.",
-                composing.firsts(), true);
-        paged(out, "COMPOSITION_SECOND", "For each code point, 0 where it is the second member of no primary"
-                + " composite, and otherwise its column of {@link #COMPOSITION_PAIRS}, counted from 1. A starter"
+        StringBuilder composition = new StringBuilder();
+        paged(composition, "FIRST", "For each code point, 0 where it is the first member of no primary"
+                + " composite, and otherwise one more than its row of {@link #ROWS}.", composing.firsts(), true);
+        paged(composition, "SECOND", "For each code point, 0 where it is the second member of no primary"
+                + " composite, and otherwise its column of {@link #PAIRS}, counted from 1. A starter"
                 + " before a code point may compose with it by the table where and only where this is not 0.",
                 composing.seconds(), false);
-        docComment(out, "Where each row of {@link #COMPOSITION_PAIRS} begins, at the row of the first member as"
-                + " {@link #COMPOSITION_FIRST_PAGES} numbers it, less 1; the row ends where the next begins, and"
-                + " the last where the pairs end.");
-        out.append("    static final int[] COMPOSITION_ROWS = decodeIntValues(")
+        docComment(composition, "Where each row of {@link #PAIRS} begins, at the row of the first member as"
+                + " {@link #FIRST_PAGES} numbers it, less 1; the row ends where the next begins, and the last where the"
+                + " pairs end.");
+        composition.append("    static final int[] ROWS = decodeIntValues(")
                 .append(literal(hexValues(composing.rowStarts()))).append(");\n\n");
-        docComment(out, "The pairs that compose (" + composing.pairs().length + "), a row at a time and in order of"
-                + " the column of the second member within a row, each the composite shifted left by 8 and the"
-                + " column. Hangul's, which are arithmetic, are not here.");
-        out.append("    static final int[] COMPOSITION_PAIRS = decodeIntValues(")
+        docComment(composition, "The pairs that compose (" + composing.pairs().length + "), a row at a time and in"
+                + " order of the column of the second member within a row, each the composite shifted left by 8"
+                + " and the column. Hangul's, which are arithmetic, are not here.");
+        composition.append("    static final int[] PAIRS = decodeIntValues(")
                 .append(literal(hexValues(composing.pairs()))).append(");\n\n");
+        holder(out, "Composition", "The primary compositions, which a program that normalizes in no composing form"
+                + " never loads.", composition);
 
         out.append("    /** For each form, the least code point that is not a starter or whose quick check for the")
                 .append(" form is not Yes. Text made only of code points below it is its own normalization in")
