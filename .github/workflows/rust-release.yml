@@ -99,8 +99,20 @@ jobs:
           print(f"Image formats read: {names(m['images-read'])}")
           print(f"Image formats written: {names(m['images-written'])}")
           PY
-          if gh release view "$TAG" > /dev/null 2>&1; then
-            echo "$TAG already has a release"
+          # A release the tag already has, from a run that failed after writing it, is taken as it is
+          # where it says what the notes say. One that does not, written by hand or written wrong, is
+          # not taken for the release: it fails here, to be put right by hand.
+          if gh release view "$TAG" --json body --jq .body > existing.md 2> /dev/null; then
+            tr -d '\r' < existing.md > existing.txt
+            while IFS= read -r line; do
+              if ! grep -Fxq -- "$line" existing.txt; then
+                echo "::error::the release of $TAG exists and does not say: $line"
+                exit 1
+              fi
+            done < notes.md
+            echo "$TAG already has a release that says what the crate implements"
             exit 0
           fi
-          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md
+          # Not the latest release of the repository: Java, Go, PHP and the npm package are released
+          # on their own, and what is latest of one says nothing of the others.
+          gh release create "$TAG" --verify-tag --latest=false --title "$TAG" --notes-file notes.md

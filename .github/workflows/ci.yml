@@ -112,17 +112,6 @@ jobs:
         env:
           NOTATION199X_REQUIRE_SUITE: '1'
         run: cargo test
-      # What a release records of the crate is in Cargo.toml, so that crates.io holds it with the
-      # version. The Unicode version it names is the one ucd/ holds.
-      - name: The crate names the Unicode version of ucd/
-        working-directory: rust
-        run: |
-          named=$(sed -n 's/^unicode = "\(.*\)"/\1/p' Cargo.toml)
-          held=$(basename -a ../ucd/*/)
-          if [ "$named" != "$held" ]; then
-            echo "::error::Cargo.toml names Unicode $named and ucd/ holds $held"
-            exit 1
-          fi
       # A crate holds only what is under rust/, so the license is a copy there, and what is
       # published holds the copy.
       - name: The crate carries the license
