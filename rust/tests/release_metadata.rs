@@ -8,7 +8,6 @@ use common::{each_line, repository_file};
 use notation199x::Pattern;
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
 
 const MANIFEST: &str = include_str!("../Cargo.toml");
 
@@ -107,33 +106,19 @@ fn the_images_read_are_the_formats_from_image_accepts() {
     );
 }
 
-/// The crate writes no image, and the metadata says so. What a crate writes cannot be asked of it the
-/// way what it reads can, so what is held is that no public function names an image but the one that
-/// reads: a writer added to the crate fails here, and is to be named in `images-written` with a test
-/// that reads back what it writes.
+/// The formats the crate writes are formats the repository defines. What a crate writes cannot be
+/// asked of it the way what it reads can, so this holds only that a name in `images-written` is not
+/// a typo, and what `images-written` says is kept by whoever adds a writer: its format goes into the
+/// table in the commit that adds it, with a test that reads back what it writes.
 #[test]
-fn the_crate_writes_no_image_and_says_so() {
-    assert_eq!(metadata("images-written"), Vec::<String>::new());
-
-    let mut named = Vec::new();
-    let mut directories = vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
-    while let Some(directory) = directories.pop() {
-        for entry in fs::read_dir(directory).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                directories.push(path);
-            } else if path.extension().is_some_and(|extension| extension == "rs") {
-                for line in fs::read_to_string(&path).unwrap().lines() {
-                    let line = line.trim_start();
-                    if let Some(signature) = line.strip_prefix("pub fn ") {
-                        let name = signature.split(['(', '<']).next().unwrap();
-                        if name.contains("image") {
-                            named.push(name.to_string());
-                        }
-                    }
-                }
-            }
-        }
+fn the_images_written_are_formats_the_repository_defines() {
+    let Some(image) = repository_file("image") else {
+        return;
+    };
+    for format in metadata("images-written") {
+        assert!(
+            image.join(format!("{format}.md")).exists(),
+            "images-written names {format}, which image/ does not define"
+        );
     }
-    assert_eq!(named, ["from_image"], "public functions that name an image");
 }

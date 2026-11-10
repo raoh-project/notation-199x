@@ -100,10 +100,15 @@ jobs:
           print(f"Image formats written: {names(m['images-written'])}")
           PY
           # A release the tag already has, from a run that failed after writing it, is taken as it is
-          # where it says what the notes say. One that does not, written by hand or written wrong, is
-          # not taken for the release: it fails here, to be put right by hand.
-          if gh release view "$TAG" --json body --jq .body > existing.md 2> /dev/null; then
-            tr -d '\r' < existing.md > existing.txt
+          # where it is published and says what the notes say. One that does not, written by hand or
+          # written wrong, a draft or a prerelease, is not taken for the release: it fails here, to
+          # be put right by hand.
+          if gh release view "$TAG" --json body,isDraft,isPrerelease > existing.json 2> /dev/null; then
+            if [ "$(jq -r '.isDraft or .isPrerelease' existing.json)" != false ]; then
+              echo "::error::the release of $TAG exists as a draft or a prerelease, and a release is neither"
+              exit 1
+            fi
+            jq -r .body existing.json | tr -d '\r' > existing.txt
             while IFS= read -r line; do
               if ! grep -Fxq -- "$line" existing.txt; then
                 echo "::error::the release of $TAG exists and does not say: $line"

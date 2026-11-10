@@ -183,15 +183,15 @@ another.
 The crate's version says neither the Unicode version it implements nor the image formats it reads and
 writes. `[package.metadata.notation199x]` in `rust/Cargo.toml` says them (`unicode`, `images-read`,
 `images-written`), so that crates.io holds them with each version. `rust/tests/release_metadata.rs`
-holds each to what the repository establishes, and fails a `unicode` that is not the version `ucd/`
-holds or that the description and the documentation do not say, an `images-read` that is not the
-formats `Pattern::from_image` accepts an image of, and a public function that names an image, other
-than `from_image`, while `images-written` is empty. What a crate writes cannot be asked of it, so a
-writer that no public function names an image by is not found: whoever adds one adds its format to
-`images-written` and a test that reads back what it writes. The workflow writes the same three lines
+holds what can be asked of the crate to what the repository establishes: a `unicode` that is not the
+version `ucd/` holds, or that the description and the documentation do not say, fails, and so does
+an `images-read` that is not the formats `Pattern::from_image` accepts an image of, and an
+`images-written` that names a format `image/` does not define. What a crate writes cannot be asked of
+it, so nothing finds a writer that is added: whoever adds one adds its format to `images-written` in
+the same commit, with a test that reads back what it writes. The workflow writes the same three lines
 as the notes of the GitHub release, which is not marked as the latest release of the repository, since
-the implementations are released on their own. A release that already exists with other notes fails
-the workflow and is put right by hand.
+the implementations are released on their own. A release that already exists as a draft or a
+prerelease, or with other notes, fails the workflow and is put right by hand.
 
 When the crate is published and the release is not written, run the `release` job again. When a run
 fails after crates.io has taken the version, so that a run of the publish job finds it taken, check
