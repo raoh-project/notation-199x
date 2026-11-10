@@ -1,0 +1,106 @@
+name: Rust release
+
+# A tag rust/vX.Y.Z releases rust/ as version X.Y.Z of the crate notation199x on crates.io. The tag
+# is checked first (rust/ and a version, on main, the version rust/Cargo.toml holds, and no -dev), then
+# the whole of CI runs on the commit it names, and only once that passes is the crate published and
+# the GitHub release of the tag written. What crates.io holds is a commit all of that passed on.
+#
+# cargo is handed no token to keep: crates.io proves the run to be this workflow of this repository
+# (trusted publishing, the crate's settings on crates.io naming this file), and gives it a token that
+# lasts for the run. The crate's first version is published by hand, and the trusted publisher named
+# after it, as for the npm package.
+
+on:
+  push:
+    tags: ['rust/v*']
+
+# One release at a time, and none left out: a group holds one run waiting by default, and a run that
+# comes after it takes its place, so a tag pushed while another waited would never be released;
+# queue: max holds every run, up to a hundred.
+concurrency:
+  group: rust-release
+  cancel-in-progress: false
+  queue: max
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: The tag is a version on main, and the version of the crate
+        id: version
+        run: |
+          version=$(.github/scripts/check-release-tag.sh "$GITHUB_REF" rust/)
+          crate=$(sed -n 's/^version = "\(.*\)"/\1/p' rust/Cargo.toml | head -n 1)
+          if [ "$version" != "$crate" ]; then
+            echo "::error::the tag is rust/v$version and rust/Cargo.toml holds $crate"
+            exit 1
+          fi
+          echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # Everything CI checks of a commit, on the commit the tag names.
+  ci:
+    needs: tag
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: [tag, ci]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # What crates.io is shown to prove that the run is this workflow.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      # The toolchain rust/rust-toolchain.toml names.
+      - name: Install the Rust toolchain
+        working-directory: rust
+        run: rustup toolchain install
+      # Pinned to a commit, since it is handed the right to publish.
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+        id: auth
+      # crates.io takes a version once and never again, so a version it already has stops here.
+      - name: Publish
+        working-directory: rust
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish --locked
+
+  # A job of its own, so that a release that failed to be written is run again without publishing.
+  # --verify-tag: the release is of the tag that was checked, and a tag that is not there is no
+  # release, where gh would make the tag from the head of the default branch.
+  release:
+    needs: [tag, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.tag.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Write the release
+        run: |
+          python3 - > notes.md <<'PY'
+          import tomllib
+          m = tomllib.load(open("rust/Cargo.toml", "rb"))["package"]["metadata"]["notation199x"]
+          names = lambda l: ", ".join(l) if l else "none"
+          print(f"Unicode: {m['unicode']}")
+          print(f"Image formats read: {names(m['images-read'])}")
+          print(f"Image formats written: {names(m['images-written'])}")
+          PY
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "$TAG already has a release"
+            exit 0
+          fi
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md

@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [develop, main]
-    tags: ['v*', 'go/v*', 'rust/v*']
+    tags: ['v*', 'go/v*']
   pull_request:
   # The PHP release runs all of this on the commit it releases before it publishes anything.
   workflow_call:
@@ -112,6 +112,17 @@ jobs:
         env:
           NOTATION199X_REQUIRE_SUITE: '1'
         run: cargo test
+      # What a release records of the crate is in Cargo.toml, so that crates.io holds it with the
+      # version. The Unicode version it names is the one ucd/ holds.
+      - name: The crate names the Unicode version of ucd/
+        working-directory: rust
+        run: |
+          named=$(sed -n 's/^unicode = "\(.*\)"/\1/p' Cargo.toml)
+          held=$(basename -a ../ucd/*/)
+          if [ "$named" != "$held" ]; then
+            echo "::error::Cargo.toml names Unicode $named and ucd/ holds $held"
+            exit 1
+          fi
       # A crate holds only what is under rust/, so the license is a copy there, and what is
       # published holds the copy.
       - name: The crate carries the license
@@ -330,25 +341,17 @@ jobs:
           path: ${{ runner.temp }}/perf-report
           if-no-files-found: error
 
-  # A tag rust/vX.Y.Z names a release of the crate: the version in rust/Cargo.toml is X.Y.Z. The rust
-  # job runs the tests on the tag, and this one fails a tag that names another version, or a -dev one.
-  rust-release-tag:
-    if: startsWith(github.ref, 'refs/tags/rust/v')
+  # A tag go/vX.Y.Z is a release of the module, and the module proxy keeps what it first held, so the
+  # tag is checked as it is pushed: go/ and a version, on main.
+  go-release-tag:
+    if: startsWith(github.ref, 'refs/tags/go/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: The tag is the version, and the version is a release
-        working-directory: rust
-        run: |
-          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
-          tag="${GITHUB_REF#refs/tags/}"
-          if [ "$tag" != "rust/v$version" ]; then
-            echo "::error::the tag is $tag and the version is $version"
-            exit 1
-          fi
-          case "$version" in
-            *-dev) echo "::error::$version is a development version, and a tag names a release"; exit 1 ;;
-          esac
+        with:
+          fetch-depth: 0
+      - name: The tag is go/vX.Y.Z on main
+        run: .github/scripts/check-release-tag.sh "$GITHUB_REF" go/
 
   # A tag names a release: vX.Y.Z on a commit whose version is X.Y.Z. Checked when it is pushed,
   # before anything is deployed from it.
@@ -357,6 +360,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: The tag is vX.Y.Z on main
+        run: .github/scripts/check-release-tag.sh "$GITHUB_REF" ''
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
