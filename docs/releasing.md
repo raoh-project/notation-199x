@@ -12,6 +12,16 @@ for Java, and `X.Y.(Z+1)-dev` for the npm package and the crate. Go and PHP take
 tag and name none in their files. A release that is more than a patch sets its own version when it
 is cut, in the release's first step. `<next version>` below is that patch.
 
+## The release pull request
+
+A release is a pull request from `develop` to `main`, and `main` holds the last release, so the
+benchmarks of `develop` are built on a crate that is not what they were written for: they use what
+the crate has gained since. The `rust-perf` job cannot build them on `main` and fails, and a commit
+of the branch says so with the line `Benchmark-baseline: none` in its message, as
+`rust/bench/README.md` says of a pull request that needs what its base does not have. What each
+change did to the counts was compared when it was made, in the pull request that made it, and the
+release pull request is run against itself.
+
 ## Java
 
 `develop` holds the next version as a snapshot, `X.Y.Z-SNAPSHOT`, and a release is that version
