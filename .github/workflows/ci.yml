@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [develop, main]
-    tags: ['v*', 'go/v*']
+    tags: ['v*', 'go/v*', 'rust/v*']
   pull_request:
   # The PHP release runs all of this on the commit it releases before it publishes anything.
   workflow_call:
@@ -329,6 +329,26 @@ jobs:
           name: rust-perf-report
           path: ${{ runner.temp }}/perf-report
           if-no-files-found: error
+
+  # A tag rust/vX.Y.Z names a release of the crate: the version in rust/Cargo.toml is X.Y.Z. The rust
+  # job runs the tests on the tag, and this one fails a tag that names another version, or a -dev one.
+  rust-release-tag:
+    if: startsWith(github.ref, 'refs/tags/rust/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: The tag is the version, and the version is a release
+        working-directory: rust
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          tag="${GITHUB_REF#refs/tags/}"
+          if [ "$tag" != "rust/v$version" ]; then
+            echo "::error::the tag is $tag and the version is $version"
+            exit 1
+          fi
+          case "$version" in
+            *-dev) echo "::error::$version is a development version, and a tag names a release"; exit 1 ;;
+          esac
 
   # A tag names a release: vX.Y.Z on a commit whose version is X.Y.Z. Checked when it is pushed,
   # before anything is deployed from it.

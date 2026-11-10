@@ -176,5 +176,14 @@ PHP, a tag begins with the directory, `rust/vX.Y.Z`.
    `cargo publish --dry-run` packages the crate and builds it from the package first.
 4. Merge `main` back into `develop`, and set `rust/Cargo.toml` there to `<next version>-dev`.
 
+CI runs the Rust tests on the tag, and fails a tag whose version is not the one in `rust/Cargo.toml`
+or is a `-dev` one. Push the tag after the pull request is merged and before publishing, so that a
+wrong tag is found before crates.io takes the version.
+
+The crate's version says neither the Unicode version nor the image formats. The GitHub release of the
+tag says them, in two lines: the Unicode version, which is the directory under `ucd/` at the tag, and
+which of P1 and P2 the crate reads and which it writes. Write the release notes from the tag with
+`gh release create rust/vX.Y.Z`.
+
 A version crates.io has taken is never replaced: a release that is wrong is yanked and followed by
 another.
