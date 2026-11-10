@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -128,5 +129,75 @@ class AMeetIsMadeOfThePairsAWalkReachesTest {
         assertFalse(met.accepts("aa", roomy()), "which the right side does not accept");
         assertFalse(met.accepts("aaa", roomy()), "nor the left");
         assertFalse(met.accepts("aaaa", roomy()), "and four is neither");
+    }
+
+    /**
+     * Where the pairs reached run to thousands, past every size the table of them begins at and is
+     * made again at: each is one state and charged as one, and the pairs the walk found twice are
+     * the one state both times.
+     *
+     * <p>Cycles of lengths with nothing in common reach every pair of their positions, which is
+     * as many as the two lengths multiplied. A pair lost or made twice in the table would be a
+     * state missing from the meet, or more charged than the meet holds.
+     */
+    @Test
+    void manyPairsReachedAreEachOneStateAndChargedOnce() {
+        Meter meter = roomy();
+        Automaton left = of("(a{31})*", meter);
+        Automaton right = of("(a{32})*", meter);
+        int before = meter.left();
+
+        Automaton met = left.and(right, meter);
+
+        assertNotNull(met);
+        int charged = before - meter.left();
+        assertEquals(met.size(), charged, "a state charged for each pair, and none twice");
+        assertTrue(charged > 512, "enough pairs to have made the table over more than once: " + charged);
+        assertTrue(met.accepts("", roomy()));
+        assertTrue(met.accepts("a".repeat(31 * 32), roomy()), "a run of both");
+        assertTrue(met.accepts("a".repeat(31 * 32 * 2), roomy()), "and of both again");
+        assertFalse(met.accepts("a".repeat(31 * 16), roomy()), "which the right side does not");
+        assertFalse(met.accepts("a".repeat(32 * 15), roomy()), "nor the left");
+        assertFalse(met.accepts("a".repeat(31 * 32 + 1), roomy()), "and one past is neither");
+        Automaton again = left.and(right, meter);
+        assertNotNull(again);
+        assertEquals(met.shape(), again.shape(), "the same pairs are the same states every time");
+    }
+
+    /**
+     * A meet is refused on the pairs it reaches however many there are, so a meter with room for
+     * exactly those lets it through and one with a state less does not.
+     */
+    @Test
+    void aMeetIsRefusedOnTheLastPairAndNotBefore() {
+        Meter roomy = roomy();
+        Automaton left = of("(a{31})*", roomy);
+        Automaton right = of("(a{32})*", roomy);
+        Automaton met = left.and(right, roomy);
+        assertNotNull(met);
+        int reached = met.size();
+
+        assertNotNull(left.and(right, new Meter(reached, reached, 1_000_000_000L)));
+        assertNull(left.and(right, new Meter(reached - 1, reached - 1, 1_000_000_000L)));
+    }
+
+    /**
+     * Two big machines whose meet is one state cost that one state: nothing here is sized by what
+     * the two multiply to, and a meet that reached a pair is charged one state however many there
+     * could have been.
+     */
+    @Test
+    void bigMachinesThatReachOnePairAreChargedOne() {
+        Meter meter = roomy();
+        Automaton left = of("[ab]{80}", meter);
+        Automaton right = of("[cd]{80}", meter);
+        assertTrue(left.size() * right.size() > 2048);
+        int before = meter.left();
+
+        Automaton met = left.and(right, meter);
+
+        assertNotNull(met);
+        assertEquals(1, met.size());
+        assertEquals(1, before - meter.left());
     }
 }

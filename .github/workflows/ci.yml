@@ -101,6 +101,10 @@ jobs:
         run: |
           rustup toolchain install "$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)" --profile minimal
           cargo +"$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)" build
+      # A program that links the crate carries the tables of the forms it asks for and no others.
+      - name: Check what a linked program carries of the tables
+        working-directory: rust
+        run: sh linked/check.sh
       # A checkout holds ucd/, suite/ and image/, and a test that does not find them fails rather than
       # skips.
       - name: Test
@@ -277,6 +281,67 @@ jobs:
           NOTATION199X_JAVA_IMAGES: ${{ github.workspace }}/java-images/pattern-match.txt
         run: cargo test --test java_images
 
+  # The instructions and the time of normalization and case conversion that merging a pull request
+  # changes: the base branch as it is now against the commit GitHub makes by merging the pull request
+  # into it, so that what is compared is what the merge does to the base branch, and not what the
+  # base branch gained since the pull request branched. Both are measured with the benchmarks of the
+  # merge commit (rust/bench), so that a pull request that changes them is compared as well.
+  #
+  # A count of instructions over the limit is reported in the summary of the job and does not fail it;
+  # a comparison that could not be made does. The runner is fixed, so that the machine is the one
+  # thing that does not change between two runs of this.
+  rust-perf:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      # The merge commit, which is what is checked out of a pull request unless it is asked otherwise.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Install the Rust toolchain
+        working-directory: rust
+        run: rustup toolchain install
+      - name: The report refuses a comparison that cannot be made
+        run: python3 -m unittest discover -s rust/bench -v
+      - name: The lock file of the benchmarks follows the version of the crate
+        run: sh rust/bench/test-sync-lock.sh
+      - name: Format and lint the benchmarks
+        working-directory: rust/bench
+        run: |
+          sh sync-lock.sh .
+          cargo fmt --check
+          cargo clippy --all-targets --locked -- -D warnings
+      - name: Install Valgrind and the runner of the version the benchmarks name
+        working-directory: rust/bench
+        run: |
+          version=$(sed -n 's/^gungraun = "=\(.*\)"/\1/p' Cargo.toml)
+          test -n "$version"
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+          cargo install gungraun-runner --locked --version "$version"
+      - name: Compare the benchmarks
+        env:
+          OUT: ${{ runner.temp }}/perf-report
+        run: sh rust/bench/compare.sh "${{ github.event.pull_request.base.sha }}" "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rust-perf-report
+          path: ${{ runner.temp }}/perf-report
+          if-no-files-found: error
+
+  # A tag go/vX.Y.Z is a release of the module, and the module proxy keeps what it first held, so the
+  # tag is checked as it is pushed: go/ and a version, on main.
+  go-release-tag:
+    if: startsWith(github.ref, 'refs/tags/go/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: The tag is go/vX.Y.Z on main
+        run: .github/scripts/check-release-tag.sh "$GITHUB_REF" go/
+
   # A tag names a release: vX.Y.Z on a commit whose version is X.Y.Z. Checked when it is pushed,
   # before anything is deployed from it.
   release-tag:
@@ -284,6 +349,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: The tag is vX.Y.Z on main
+        run: .github/scripts/check-release-tag.sh "$GITHUB_REF" ''
       - uses: actions/setup-java@v5
         with:
           distribution: temurin

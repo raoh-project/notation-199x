@@ -17,7 +17,7 @@ import (
 // A case mapping is not closed under any normalization form, so a caller that holds its text in
 // one normalizes the answer. s is valid UTF-8 (see [InvalidUTF8At]).
 func Lowercase(s string) string {
-	mapped, _ := mapCase(s, true, -1)
+	mapped, _ := mapCase(&lowerCase, s, -1)
 	return mapped
 }
 
@@ -25,7 +25,7 @@ func Lowercase(s string) string {
 // point can widen to several, so Uppercase("straße") is "STRASSE", and no locale narrows it, so a
 // Turkish i still becomes I. s is valid UTF-8 (see [InvalidUTF8At]).
 func Uppercase(s string) string {
-	mapped, _ := mapCase(s, false, -1)
+	mapped, _ := mapCase(&upperCase, s, -1)
 	return mapped
 }
 
@@ -37,7 +37,7 @@ func LowercaseWithin(s string, longest int) (string, bool) {
 	if longest < 0 {
 		return "", false
 	}
-	return mapCase(s, true, longest)
+	return mapCase(&lowerCase, s, longest)
 }
 
 // UppercaseWithin is [Uppercase] where that is no longer than longest scalar values, and false
@@ -48,8 +48,35 @@ func UppercaseWithin(s string, longest int) (string, bool) {
 	if longest < 0 {
 		return "", false
 	}
-	return mapCase(s, false, longest)
+	return mapCase(&upperCase, s, longest)
 }
+
+// caseFacts is what the mapping asks of a direction, lower or upper. What a direction reads of the
+// tables is held in the values it names and in nothing else the mapping runs, so that a program
+// that asks for one direction is linked with what that direction reads: a value is linked where
+// something the program reaches names it, and a direction's facts are named where the program asks
+// for the direction.
+type caseFacts struct {
+	// mapping is the full mapping, which position says where a code point is in.
+	mapping *mapping
+	// position is, for each code point, 0 where mapping maps it to itself, and otherwise one more
+	// than where it is in mapping.
+	position *paged[uint16]
+	// ascii is, for each ASCII character, what it maps to where that is one ASCII character and
+	// the context does not decide it, and -1 where the tables are asked.
+	ascii *[utf8.RuneSelf]int16
+	// inContext is the mapping of r, between at and after in s, where a condition on the code points
+	// around it decides it: to, the mapping the tables give, or what replaces it. It is false where
+	// that is not decided within longest, when it is not negative and written code points have been
+	// written. It is nil where no condition decides the mapping, as in uppercase, and the mapping is
+	// then the one the tables give.
+	inContext func(s string, r rune, at, after, longest, written int, to []rune) ([]rune, bool)
+}
+
+var (
+	lowerCase = caseFacts{&lowerMapping, &lowerPosition, &lowerASCII, finalSigma}
+	upperCase = caseFacts{&upperMapping, &upperPosition, &upperASCII, nil}
+)
 
 // mapCase is the mapped text, and false where it is longer than longest; a negative longest is
 // no bound.
@@ -64,13 +91,10 @@ func UppercaseWithin(s string, longest int) (string, bool) {
 //
 // Text that maps to itself is answered with itself. Otherwise what maps to itself is copied a run
 // at a time, from kept, and the answer is made only once a code point that changes is met. Whether
-// one does is read off lowerPositionPages or upperPositionPages, which say where its mapping is as
-// well, and for ASCII off caseOfASCII.
-func mapCase(s string, lower bool, longest int) (string, bool) {
-	table, ascii, blocks, pages := upperMapping, &caseOfASCII[1], &upperPositionBlocks, upperPositionPages[:]
-	if lower {
-		table, ascii, blocks, pages = lowerMapping, &caseOfASCII[0], &lowerPositionBlocks, lowerPositionPages[:]
-	}
+// one does is read off the direction's position table, which says where its mapping is as well,
+// and for ASCII off its ascii.
+func mapCase(facts *caseFacts, s string, longest int) (string, bool) {
+	ascii := facts.ascii
 	var out strings.Builder
 	// changed is whether a code point that changes has been met, and out holds the answer up to
 	// kept.
@@ -82,7 +106,7 @@ func mapCase(s string, lower bool, longest int) (string, bool) {
 		if longest >= 0 {
 			left = longest - written
 		}
-		if end, count := sameUpTo(s, at, left, ascii, blocks, pages); end > at {
+		if end, count := sameUpTo(s, at, left, facts); end > at {
 			written += count
 			if longest >= 0 && written > longest {
 				return "", false
@@ -118,25 +142,11 @@ func mapCase(s string, lower bool, longest int) (string, bool) {
 		}
 		r, size := utf8.DecodeRuneInString(s[at:])
 		after := at + size
-		to := table[pages[int(blocks[r>>8])<<8|int(r&0xFF)]-1].to
-		if lower {
-			if hasContext(r, contextFinalSigma) {
-				// The sigma is at least one code point of the answer, as every code point is, and
-				// each Case_Ignorable one after it is another.
-				most := -1
-				if longest >= 0 {
-					if written >= longest {
-						return "", false
-					}
-					most = longest - written - 1
-				}
-				isFinal, decided := isFinalSigma(s, at, after, most)
-				if !decided {
-					return "", false
-				}
-				if isFinal {
-					to = finalSigmaMapping.of(r)
-				}
+		to := (*facts.mapping)[facts.position.get(r)-1].to
+		if facts.inContext != nil {
+			var ok bool
+			if to, ok = facts.inContext(s, r, at, after, longest, written, to); !ok {
+				return "", false
 			}
 		}
 		if longest >= 0 && len(to) > longest-written {
@@ -160,7 +170,8 @@ func mapCase(s string, lower bool, longest int) (string, bool) {
 // sameUpTo is where the code points s has from at that the mapping leaves as they are end: the
 // first one from there that it changes, or the end of the text, or, where left is not negative,
 // where it has gone past one more than left of them; and how many code points it went past.
-func sameUpTo(s string, at, left int, ascii *[utf8.RuneSelf]int16, blocks *[4352]uint8, pages []uint16) (int, int) {
+func sameUpTo(s string, at, left int, facts *caseFacts) (int, int) {
+	ascii, position := facts.ascii, facts.position
 	count := 0
 	for at < len(s) && (left < 0 || count <= left) {
 		stop := scanStop(s, at, left, count)
@@ -174,7 +185,7 @@ func sameUpTo(s string, at, left int, ascii *[utf8.RuneSelf]int16, blocks *[4352
 				continue
 			}
 			r, size := utf8.DecodeRuneInString(s[at:])
-			if pages[int(blocks[r>>8])<<8|int(r&0xFF)] != 0 {
+			if position.get(r) != 0 {
 				return at, count
 			}
 			at += size
@@ -184,27 +195,27 @@ func sameUpTo(s string, at, left int, ascii *[utf8.RuneSelf]int16, blocks *[4352
 	return at, count
 }
 
-// caseOfASCII is, for the lowercase and the uppercase mapping, what each ASCII character maps to
-// where the mapping makes it one ASCII character and no Final_Sigma entry names it, and -1 where
-// the tables are asked. Read off the tables, so that most text is mapped a byte at a time without
-// a search and without a rule of its own about ASCII.
-var caseOfASCII = func() (out [2][utf8.RuneSelf]int16) {
-	for c := rune(0); c < utf8.RuneSelf; c++ {
-		for i, table := range []mapping{lowerMapping, upperMapping} {
-			out[i][c] = -1
-			if i == 0 && finalSigmaMapping.of(c) != nil {
-				continue
-			}
-			switch to := table.of(c); {
-			case to == nil:
-				out[i][c] = int16(c)
-			case len(to) == 1 && to[0] < utf8.RuneSelf:
-				out[i][c] = int16(to[0])
-			}
-		}
+// finalSigma is lowerCase's inContext: the final form of a capital sigma, by finalSigmaMapping,
+// where Final_Sigma holds of it, and the mapping of the tables otherwise. Every Case_Ignorable code
+// point after the sigma is at least one more code point of the answer, as the sigma is, and written
+// is how many there are before it.
+func finalSigma(s string, r rune, at, after, longest, written int, to []rune) ([]rune, bool) {
+	if !hasContext(r, contextFinalSigma) {
+		return to, true
 	}
-	return out
-}()
+	most := -1
+	if longest >= 0 {
+		if written >= longest {
+			return nil, false
+		}
+		most = longest - written - 1
+	}
+	isFinal, decided := isFinalSigma(s, at, after, most)
+	if isFinal {
+		return finalSigmaMapping.of(r), decided
+	}
+	return to, decided
+}
 
 // isFinalSigma is Unicode's Final_Sigma condition of the code point between at and after:
 // preceded, skipping Case_Ignorable code points, by a Cased one, and not followed, skipping the
@@ -241,14 +252,14 @@ func isFinalSigma(s string, at, after, most int) (final, decided bool) {
 	return true, true
 }
 
-// What caseContextPages holds of a code point, a bit each.
+// What caseContext holds of a code point, a bit each.
 const (
 	contextCased = 1 << iota
 	contextCaseIgnorable
 	contextFinalSigma
 )
 
-// hasContext is whether caseContextPages holds bit of r.
+// hasContext is whether caseContext holds bit of r.
 func hasContext(r rune, bit uint8) bool {
-	return caseContextPages[int(caseContextBlocks[r>>8])<<8|int(r&0xFF)]&bit != 0
+	return caseContext.get(r)&bit != 0
 }

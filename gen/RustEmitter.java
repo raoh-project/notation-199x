@@ -1,4 +1,5 @@
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -45,6 +46,7 @@ final class RustEmitter {
         StringBuilder out = header(model, "The default case conversion's tables: the untailored full mapping and"
                         + " the properties Final_Sigma is stated over",
                 List.of("UnicodeData.txt", "SpecialCasing.txt", "DerivedCoreProperties.txt"));
+        out.append("use crate::paged::{Paged, Paged2};\n\n");
         mapping(out, "LOWER", "The full lowercase mapping; a code point not here maps to itself",
                 casing.lower());
         mapping(out, "UPPER", "The full uppercase mapping; a code point not here maps to itself",
@@ -52,13 +54,15 @@ final class RustEmitter {
         mapping(out, "FINAL_SIGMA",
                 "The lowercase mapping that replaces `LOWER`'s at the end of a cased run (`Final_Sigma`)",
                 casing.finalSigma());
+        ascii(out, "LOWER_ASCII", "lowercase", casing.lower(), casing.finalSigma());
+        ascii(out, "UPPER_ASCII", "uppercase", casing.upper(), null);
         paged(out, "CASE_CONTEXT", "For each code point, a bit each for what `Final_Sigma` asks of it: 1 where it"
                 + " is `Cased`, 2 where it is `Case_Ignorable`, and 4 where `FINAL_SIGMA` names it.",
                 model.byCodePoint().caseContext(), "u8");
-        paged(out, "LOWER_POSITION", "For each code point, 0 where `LOWER` maps it to itself, and otherwise one"
+        pagedInTwoLevels(out, "LOWER_POSITION", "For each code point, 0 where `LOWER` maps it to itself, and otherwise one"
                 + " more than where it is in `LOWER`. No code point `FINAL_SIGMA` names is 0.",
                 model.byCodePoint().lower(), "u16");
-        paged(out, "UPPER_POSITION", "For each code point, 0 where `UPPER` maps it to itself, and otherwise one"
+        pagedInTwoLevels(out, "UPPER_POSITION", "For each code point, 0 where `UPPER` maps it to itself, and otherwise one"
                 + " more than where it is in `UPPER`.", model.byCodePoint().upper(), "u16");
         return out.toString();
     }
@@ -72,6 +76,7 @@ final class RustEmitter {
                         + " composition exclusions, checked against DerivedNormalizationProps.txt's"
                         + " Full_Composition_Exclusion when they were generated",
                 List.of("UnicodeData.txt", "CompositionExclusions.txt", "DerivedNormalizationProps.txt"));
+        out.append("use crate::paged::Paged;\n\n");
         mapping(out, "CANONICAL", "The one-step canonical decomposition; a code point not here has none",
                 decomposition.canonical());
         mapping(out, "COMPATIBILITY",
@@ -91,29 +96,27 @@ final class RustEmitter {
                 + " and it composes with nothing before it, since what does is Maybe, which the generator"
                 + " checks.", model.byCodePoint().stableStarters(), "u8");
 
-        UcdModel.Composing composing = model.byCodePoint().composing();
+        SparseComposition composing = SparseComposition.of(model.normalizationDerived().compositions());
         paged(out, "COMPOSITION_FIRST", "For each code point, 0 where it is the first member of no primary"
-                + " composite, and otherwise one more than its row of `COMPOSITION_CELLS`.", composing.firsts(), "u16");
+                + " composite, and otherwise one more than its row of `COMPOSITION_ROWS`.", composing.firsts(), "u16");
         paged(out, "COMPOSITION_SECOND", "For each code point, 0 where it is the second member of no primary"
-                + " composite, and otherwise one more than its column of `COMPOSITION_CELLS`. A starter before a"
+                + " composite, and otherwise its column of `COMPOSITION_PAIRS`, counted from 1. A starter before a"
                 + " code point may compose with it by the table where and only where this is not 0.",
                 composing.seconds(), "u8");
-        docComment(out, "How many second members there are, the length of a row of `COMPOSITION_CELLS`.");
-        out.append("pub(crate) const COMPOSITION_COLUMNS: usize = ").append(composing.columns()).append(";\n\n");
-        if (composing.composites().length > 0xFFFF) {
-            throw new IllegalStateException("COMPOSITION_CELLS does not fit the static it is written as");
-        }
-        docComment(out, "At `row * COMPOSITION_COLUMNS + column`, 0 where the pair does not compose, and otherwise"
-                + " one more than where the composite is in `COMPOSITES`. Hangul's, which are arithmetic, are not"
-                + " here.");
-        out.append("pub(crate) static COMPOSITION_CELLS: [u16; ").append(composing.cells().length).append("] = [\n");
-        values(out, composing.cells(), 4);
+        docComment(out, "Where each row of `COMPOSITION_PAIRS` begins, at the row of the first member as"
+                + " `COMPOSITION_FIRST` numbers it, less 1; the row ends where the next begins, and the last"
+                + " entry is the number of pairs.");
+        out.append("pub(crate) static COMPOSITION_ROWS: [u16; ").append(composing.rowStarts().length)
+                .append("] = [\n");
+        values(out, composing.rowStarts(), 4);
         out.append("];\n\n");
-        docComment(out, "The primary composites, in order of code point.");
-        out.append("pub(crate) static COMPOSITES: [char; ").append(composing.composites().length).append("] = [\n");
-        for (int cp : composing.composites()) {
-            out.append("    ").append(code(cp)).append(",\n");
-        }
+        docComment(out, "The pairs that compose, " + composing.pairs().length + " of them, the pairs of a first member"
+                + " together and in order of the column of the second member, as `COMPOSITION_SECOND` numbers it:"
+                + " each is the composite's code point shifted left by " + SparseComposition.COLUMN_BITS + ", and the column. Hangul's, which"
+                + " are arithmetic, are not here.");
+        out.append("pub(crate) static COMPOSITION_PAIRS: [u32; ").append(composing.pairs().length)
+                .append("] = [\n");
+        values(out, composing.pairs(), 6);
         out.append("];\n\n");
 
         for (String form : UcdModel.FORMS) {
@@ -177,9 +180,12 @@ final class RustEmitter {
         return out;
     }
 
+    /** {@code mapping} as an array, which leaves a symbol of its name in a program that links it, and a
+     *  reference to one does not. */
     private static void mapping(StringBuilder out, String name, String what, UcdModel.CodePointMapping mapping) {
         out.append("/// ").append(what).append(" (").append(mapping.entries().size()).append(" code points).\n");
-        out.append("pub(crate) static ").append(name).append(": &[(char, &[char])] = &[\n");
+        out.append("pub(crate) static ").append(name).append(": [(char, &[char]); ")
+                .append(mapping.entries().size()).append("] = [\n");
         mapping.entries().forEach((cp, mapped) -> {
             out.append("    (").append(code(cp)).append(", &[");
             for (int i = 0; i < mapped.length; i++) {
@@ -187,6 +193,33 @@ final class RustEmitter {
             }
             out.append("]),\n");
         });
+        out.append("];\n\n");
+    }
+
+    /**
+     * What each ASCII character becomes under {@code mapping}, where that is one ASCII character and
+     * {@code exceptions} does not name it, and -1 where the tables have to be asked: a program that
+     * maps text a byte at a time asks them for what is not ASCII and for these.
+     */
+    private static void ascii(StringBuilder out, String name, String what, UcdModel.CodePointMapping mapping,
+                              UcdModel.CodePointMapping exceptions) {
+        int[] mapped = new int[128];
+        for (int c = 0; c < 128; c++) {
+            int[] to = mapping.entries().get(c);
+            mapped[c] = exceptions != null && exceptions.entries().containsKey(c) ? -1
+                    : to == null ? c
+                    : to.length == 1 && to[0] < 128 ? to[0] : -1;
+        }
+        docComment(out, "What each ASCII character becomes in " + what + ", where that is one ASCII character"
+                + " and `FINAL_SIGMA` does not name it, and -1 where the tables are asked.");
+        out.append("pub(crate) static ").append(name).append(": [i16; 128] = [\n");
+        for (int i = 0; i < 128; i += 16) {
+            out.append("    ");
+            for (int j = i; j < i + 16; j++) {
+                out.append(j > i ? " " : "").append(String.format("%4d,", mapped[j]));
+            }
+            out.append('\n');
+        }
         out.append("];\n\n");
     }
 
@@ -200,28 +233,66 @@ final class RustEmitter {
     }
 
     /**
-     * {@code table} as two statics, {@code <NAME>_BLOCKS} and {@code <NAME>_PAGES}, the pages'
-     * values of type {@code type}: the value of {@code c} is at
-     * {@code <NAME>_PAGES[usize::from(<NAME>_BLOCKS[c as usize >> 8]) << 8 | c as usize & 0xFF]}.
+     * {@code table} in two levels, as two statics {@code <NAME>_BLOCKS} and {@code <NAME>_PAGES} and a
+     * {@code Paged2} over them named {@code <NAME>}, read by {@code <NAME>.get(c)}. A table is held so
+     * where a scan reads it once for each code point and does nothing else with it, so that the
+     * lookup is the whole of the work a code point costs and a third dependent load would show: the
+     * position tables of case conversion. Every other table is {@link #paged}.
      */
-    private static void paged(StringBuilder out, String name, String what, PagedTable table, String type) {
+    private static void pagedInTwoLevels(StringBuilder out, String name, String what, PagedTable table,
+                                         String type) {
         long most = type.equals("u8") ? 0xFF : 0xFFFF;
         if (table.pages().size() > 0x100 || table.greatest() > most) {
             throw new IllegalStateException(name + " does not fit the statics it is written as");
         }
-        docComment(out, what + " The value of `c` is at `" + name + "_PAGES[usize::from(" + name + "_BLOCKS[c as usize >> "
-                + PagedTable.SHIFT + "]) << " + PagedTable.SHIFT + " | c as usize & 0x"
-                + UcdModel.hex(PagedTable.PAGE - 1) + "]`: each block of " + PagedTable.PAGE + " code points has"
-                + " the page of its values, and blocks that hold the same values share one ("
-                + table.pages().size() + " pages).");
-        out.append("pub(crate) static ").append(name).append("_BLOCKS: [u8; ").append(table.blocks().length)
-                .append("] = [\n");
+        docComment(out, what + " Held in two levels, as `Paged2` says: each block of " + PagedTable.PAGE
+                + " code points has the page of its values, and blocks that hold the same values share one ("
+                + table.pages().size() + " pages). Read by `" + name + ".get(c)`.");
+        out.append("pub(crate) static ").append(name).append(": Paged2<").append(type).append("> = Paged2::new(&")
+                .append(name).append("_BLOCKS, &").append(name).append("_PAGES);\n\n");
+        out.append("static ").append(name).append("_BLOCKS: [u8; ").append(table.blocks().length).append("] = [\n");
         values(out, table.blocks(), 2);
         out.append("];\n\n");
         int[] values = table.values();
-        out.append("pub(crate) static ").append(name).append("_PAGES: [").append(type).append("; ")
-                .append(values.length).append("] = [\n");
+        out.append("static ").append(name).append("_PAGES: [").append(type).append("; ").append(values.length)
+                .append("] = [\n");
         values(out, values, type.equals("u8") ? 2 : 4);
+        out.append("];\n\n");
+    }
+
+    /**
+     * {@code table} in three levels, as three statics {@code <NAME>_TOP}, {@code <NAME>_MIDDLE}
+     * and {@code <NAME>_LEAF} and a {@code Paged} over them named {@code <NAME>}, read by
+     * {@code <NAME>.get(c)}. The sizes of a block and a page are those that take the fewest bytes for
+     * this table, and are the {@code Paged}'s type parameters.
+     */
+    private static void paged(StringBuilder out, String name, String what, PagedTable table, String type) {
+        long most = type.equals("u8") ? 0xFF : 0xFFFF;
+        ThreeLevelTable layout = ThreeLevelTable.of(table, type.equals("u8") ? 1 : 2);
+        if (Arrays.stream(layout.leaf()).max().orElse(0) > most) {
+            throw new IllegalStateException(name + " does not fit the statics it is written as");
+        }
+        int runLength = 1 << (layout.blockShift() - layout.pageShift());
+        docComment(out, what + " Held in three levels, as `Paged` says: blocks of " + (1 << layout.blockShift())
+                + " code points have a run of " + runLength + " page numbers (" + layout.middle().length / runLength
+                + " runs), pages of " + (1 << layout.pageShift()) + " code points hold the values ("
+                + layout.leaf().length / (1 << layout.pageShift()) + " pages), and a run and a page are held once"
+                + " however many blocks and runs have them. Read by `" + name + ".get(c)`.");
+        out.append("pub(crate) static ").append(name).append(": Paged<").append(layout.topType()).append(", ")
+                .append(layout.middleType()).append(", ").append(type).append(", ").append(layout.blockShift())
+                .append(", ").append(layout.pageShift()).append("> = Paged::new(&").append(name)
+                .append("_TOP, &").append(name).append("_MIDDLE, &").append(name).append("_LEAF);\n\n");
+        out.append("static ").append(name).append("_TOP: [").append(layout.topType()).append("; ")
+                .append(layout.top().length).append("] = [\n");
+        values(out, layout.top(), layout.topType().equals("u8") ? 2 : 4);
+        out.append("];\n\n");
+        out.append("static ").append(name).append("_MIDDLE: [").append(layout.middleType()).append("; ")
+                .append(layout.middle().length).append("] = [\n");
+        values(out, layout.middle(), layout.middleType().equals("u8") ? 2 : 4);
+        out.append("];\n\n");
+        out.append("static ").append(name).append("_LEAF: [").append(type).append("; ")
+                .append(layout.leaf().length).append("] = [\n");
+        values(out, layout.leaf(), type.equals("u8") ? 2 : 4);
         out.append("];\n\n");
     }
 

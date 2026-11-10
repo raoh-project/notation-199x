@@ -13,11 +13,8 @@ import {
   LOWER_POSITION_BLOCKS,
   LOWER_POSITION_PAGES,
   LOWER_TO,
-  UPPER_FROM,
-  UPPER_POSITION_BLOCKS,
-  UPPER_POSITION_PAGES,
-  UPPER_TO,
-} from "../src/case_tables.ts";
+} from "../src/case_lower_tables.ts";
+import { UPPER_FROM, UPPER_POSITION_BLOCKS, UPPER_POSITION_PAGES, UPPER_TO } from "../src/case_upper_tables.ts";
 import { lowercase, lowercaseWithin, uppercase, uppercaseWithin } from "../src/index.ts";
 import { indexOf, valueAt } from "../src/tables.ts";
 import { eachLine, repositoryFile, shown } from "./suite.ts";

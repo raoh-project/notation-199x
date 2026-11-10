@@ -108,7 +108,7 @@ final class MachineTest extends TestCase
         }
         sort($names);
         $kept = ['bytes', 'first', 'keptAccepts', 'keptHashes', 'keptLoop', 'keptNext', 'keptStates', 'needed', 'slots'];
-        $machine = ['accept', 'freeStart', 'freeTo', 'setRanges', 'setStart', 'sets', 'stepOver', 'stepStart', 'stepTo'];
+        $machine = ['accept', 'freeStart', 'freeTo', 'keyBytes', 'setRanges', 'setStart', 'sets', 'stepOver', 'stepStart', 'stepTo'];
         $all = array_merge($kept, $machine);
         sort($all);
         self::assertSame($all, $names);

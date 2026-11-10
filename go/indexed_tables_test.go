@@ -63,19 +63,26 @@ func TestTheNormalizationTablesAreWhatTheDatabaseStates(t *testing.T) {
 	}
 	wrong := 0
 	for r := rune(0); r <= utf8.MaxRune; r++ {
-		for _, compatibility := range []bool{false, true} {
-			searched := canonicalDecomposition.of(r)
-			if searched == nil && compatibility {
-				searched = compatibilityDecomposition.of(r)
-			}
-			if got := decompositionOf(r, compatibility); !slices.Equal(got, searched) {
+		searchedCompatibility := canonicalDecomposition.of(r)
+		if searchedCompatibility == nil {
+			searchedCompatibility = compatibilityDecomposition.of(r)
+		}
+		for _, each := range []struct {
+			name          string
+			compatibility *mapping
+			searched      []rune
+		}{
+			{"canonical", nil, canonicalDecomposition.of(r)},
+			{"compatibility", &compatibilityDecomposition, searchedCompatibility},
+		} {
+			if got := decompositionOf(r, each.compatibility); !slices.Equal(got, each.searched) {
 				wrong++
-				t.Errorf("the decomposition of U+%04X, compatibility %v, is %X, not %X", r, compatibility, got, searched)
+				t.Errorf("the %s decomposition of U+%04X is %X, not %X", each.name, r, got, each.searched)
 			}
 		}
-		if combiningClass(r) != classes[r] {
+		if combiningClass.get(r) != classes[r] {
 			wrong++
-			t.Errorf("the combining class of U+%04X is %d, not %d", r, combiningClass(r), classes[r])
+			t.Errorf("the combining class of U+%04X is %d, not %d", r, combiningClass.get(r), classes[r])
 		}
 		for _, form := range []Form{NFC, NFD, NFKC, NFKD} {
 			stated := classes[r] == 0 && !notYes[form.String()][r]
@@ -96,11 +103,10 @@ func TestTheCaseTablesAnswerWhereTheMappingHoldsWhatChanges(t *testing.T) {
 	for _, each := range []struct {
 		name    string
 		mapping mapping
-		blocks  *[4352]uint8
-		pages   []uint16
+		table   *paged[uint16]
 	}{
-		{"lower", lowerMapping, &lowerPositionBlocks, lowerPositionPages[:]},
-		{"upper", upperMapping, &upperPositionBlocks, upperPositionPages[:]},
+		{"lower", lowerMapping, &lowerPosition},
+		{"upper", upperMapping, &upperPosition},
 	} {
 		at := make(map[rune]int)
 		for i, m := range each.mapping {
@@ -109,13 +115,13 @@ func TestTheCaseTablesAnswerWhereTheMappingHoldsWhatChanges(t *testing.T) {
 			}
 		}
 		for r := rune(0); r <= utf8.MaxRune; r++ {
-			if got := int(each.pages[int(each.blocks[r>>8])<<8|int(r&0xFF)]); got != at[r] {
+			if got := int(each.table.get(r)); got != at[r] {
 				t.Fatalf("%s U+%04X is %d, not %d", each.name, r, got, at[r])
 			}
 		}
 	}
 	for _, m := range finalSigmaMapping {
-		if lowerPositionPages[int(lowerPositionBlocks[m.from>>8])<<8|int(m.from&0xFF)] == 0 {
+		if lowerPosition.get(m.from) == 0 {
 			t.Errorf("U+%04X has a Final_Sigma mapping and the lowercase table maps it to itself", m.from)
 		}
 	}
@@ -128,7 +134,7 @@ func TestTheRoomForADecompositionIsTheLongestThereIs(t *testing.T) {
 	var parts []rune
 	for r := rune(0); r <= utf8.MaxRune; r++ {
 		var decomposed bool
-		if parts, decomposed = decomposeInto(parts[:0], r, true); !decomposed {
+		if parts, decomposed = decomposeInto(parts[:0], r, &compatibilityDecomposition); !decomposed {
 			parts = append(parts[:0], r)
 		}
 		longest = max(longest, len(parts))
@@ -191,17 +197,11 @@ func TestTheCompositionTableIsWhatTheDatabaseStates(t *testing.T) {
 			t.Errorf("U+%04X U+%04X composes into U+%04X, %v, not U+%04X", pair[0], pair[1], got, ok, composite)
 		}
 	}
-	composing := 0
-	for _, at := range compositionCells {
-		if at != 0 {
-			composing++
-		}
-	}
-	if composing != stated {
-		t.Errorf("the table composes %d pairs, and the database states %d", composing, stated)
+	if len(compositionPairs) != stated {
+		t.Errorf("the table composes %d pairs, and the database states %d", len(compositionPairs), stated)
 	}
 	for r := rune(0); r <= utf8.MaxRune; r++ {
-		if second := compositionSecondPages[int(compositionSecondBlocks[r>>8])<<8|int(r&0xFF)] != 0; second != seconds[r] {
+		if second := compositionSecond.get(r) != 0; second != seconds[r] {
 			t.Fatalf("U+%04X is a second member: %v", r, second)
 		}
 	}

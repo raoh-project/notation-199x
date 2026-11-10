@@ -13,6 +13,12 @@
 //!
 //! The crate is `no_std` and allocates through `alloc`, so that a run time without the standard
 //! library can use it. Such a run time provides the global allocator.
+//!
+//! A statically linked program carries the tables of what it calls and no others: [`lowercase`] and
+//! [`uppercase`] each carry their own, and [`Nfc`], [`Nfd`], [`Nfkc`] and [`Nfkd`] each carry what
+//! their form reaches. [`normalize`], [`normalize_within`] and [`append_normalized`] take the form
+//! as a value and so carry the tables of all four, which a program that needs one form avoids by
+//! calling it on that form's type.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -32,14 +38,18 @@ mod white_space_tables;
 
 mod case;
 mod normalization;
+mod paged;
 mod pattern;
+mod scan;
 mod tables;
 mod temporal;
 mod text;
 mod white_space;
 
 pub use case::{lowercase, lowercase_within, uppercase, uppercase_within};
-pub use normalization::{Form, append_normalized, normalize, normalize_within};
+pub use normalization::{
+    Form, Nfc, Nfd, Nfkc, Nfkd, Normalizer, append_normalized, normalize, normalize_within,
+};
 pub use pattern::{
     Matcher, NotAnImage, OwnedMatcher, Pattern, PatternBeyond, PatternLimit, PatternRead,
     PatternRefusal, PatternRefused, read_pattern,

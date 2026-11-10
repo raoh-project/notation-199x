@@ -9,7 +9,19 @@
 // `suite` directory, the same vectors every other implementation is held to.
 
 export { lowercase, lowercaseWithin, uppercase, uppercaseWithin } from "./case.ts";
-export { type Form, normalize, normalizeWithin } from "./normalization.ts";
+export {
+  type Form,
+  normalize,
+  normalizeNFC,
+  normalizeNFCWithin,
+  normalizeNFD,
+  normalizeNFDWithin,
+  normalizeNFKC,
+  normalizeNFKCWithin,
+  normalizeNFKD,
+  normalizeNFKDWithin,
+  normalizeWithin,
+} from "./normalization.ts";
 export {
   PATTERN_LIMITS,
   readPattern,
