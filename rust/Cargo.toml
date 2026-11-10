@@ -9,6 +9,14 @@ repository = "https://github.com/raoh-project/notation-199x"
 keywords = ["unicode", "normalization", "case", "pattern", "no_std"]
 categories = ["text-processing", "no-std"]
 
+# What a release of the crate implements, which its version does not say. The release workflow
+# writes it into the notes of the GitHub release, and crates.io holds it with the version. P1 and P2
+# are the image formats in image/; the crate reads an image with Pattern::from_image and writes none.
+[package.metadata.notation199x]
+unicode = "18.0.0"
+images-read = ["P1", "P2"]
+images-written = []
+
 [dependencies]
 
 [dev-dependencies]

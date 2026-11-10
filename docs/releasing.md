@@ -22,8 +22,9 @@ release is deployed from the commit its tag names, so what Central holds is what
    ```sh
    cd java && mvn versions:set -DnewVersion=X.Y.Z -DgenerateBackupPoms=false
    ```
-2. Merge it, and tag the merge commit on `main` `vX.Y.Z`. CI fails a tag that is not `v` and the
-   version, or whose version is a snapshot.
+2. Merge it, and tag the merge commit on `main` `vX.Y.Z`. CI fails a tag that is not `v` and a
+   version, that names a commit not on `main`, that is not the version of the project, or whose
+   version is a snapshot.
 3. Deploy from a checkout of the tag:
    ```sh
    git checkout vX.Y.Z
@@ -57,7 +58,8 @@ The module is `github.com/raoh-project/notation-199x/go`, and a release of it is
 module's version `vX.Y.Z` is the tag `go/vX.Y.Z`. The first release is `go/v0.2.0`.
 
 1. Merge what is to be released into `main`, as for a Java release.
-2. Tag the commit on `main` `go/vX.Y.Z` and push the tag. CI runs the Go tests on it.
+2. Tag the commit on `main` `go/vX.Y.Z` and push the tag. CI runs the Go tests on it, and fails a
+   tag that is not `go/` and a version, or that names a commit not on `main`.
 3. Ask the module proxy for the version, so that it holds what the tag holds from then on:
    ```sh
    GOPROXY=https://proxy.golang.org go list -m github.com/raoh-project/notation-199x/go@vX.Y.Z
@@ -161,20 +163,46 @@ published versions`.
 
 ## Rust
 
-The crate is `notation199x`, published to crates.io from `rust/`. `rust/Cargo.toml` on `develop` holds
-the next version as `X.Y.Z-dev`, and a release is that version without the suffix. As for Go and
-PHP, a tag begins with the directory, `rust/vX.Y.Z`.
+The crate is `notation199x`, published to crates.io from `rust/` by the `Rust release` workflow and by
+nothing else. `rust/Cargo.toml` on `develop` holds the next version as `X.Y.Z-dev`, and a release is
+that version without the suffix. As for Go and PHP, a tag begins with the directory, `rust/vX.Y.Z`.
 
 1. On a branch from `develop`, set `rust/Cargo.toml`'s version to `X.Y.Z`, let `cargo check` write it
    into `rust/Cargo.lock`, and open a pull request to `main`, as for a Java release.
-2. Merge it, and tag the merge commit on `main` `rust/vX.Y.Z` and push the tag.
-3. Publish from a checkout of the tag, logged in to crates.io with `cargo login`:
-   ```sh
-   git checkout rust/vX.Y.Z
-   cd rust && cargo publish
-   ```
-   `cargo publish --dry-run` packages the crate and builds it from the package first.
-4. Merge `main` back into `develop`, and set `rust/Cargo.toml` there to `<next version>-dev`.
+2. Merge it, and tag the merge commit on `main` `rust/vX.Y.Z` and push the tag. The workflow fails a
+   tag that is not `rust/` and a version, that names a commit not on `main`, or that is not the
+   version `rust/Cargo.toml` holds, which a `-dev` version never is. It runs the whole of CI on the
+   commit, and only once that passes publishes the crate and writes the GitHub release of the tag.
+3. Merge `main` back into `develop`, and set `rust/Cargo.toml` there to `<next version>-dev`.
+
+`cargo publish --dry-run` packages the crate and builds it from the package first.
 
 A version crates.io has taken is never replaced: a release that is wrong is yanked and followed by
 another.
+
+The crate's version says neither the Unicode version it implements nor the image formats it reads and
+writes. `[package.metadata.notation199x]` in `rust/Cargo.toml` says them (`unicode`, `images-read`,
+`images-written`), so that crates.io holds them with each version. `rust/tests/release_metadata.rs`
+holds what can be asked of the crate to what the repository establishes: a `unicode` that is not the
+version `ucd/` holds, or that the description and the documentation do not say, fails, and so does
+an `images-read` that is not the formats `Pattern::from_image` accepts an image of, and an
+`images-written` that names a format `image/` does not define. What a crate writes cannot be asked of
+it, so nothing finds a writer that is added: whoever adds one adds its format to `images-written` in
+the same commit, with a test that reads back what it writes. The workflow writes the same three lines
+as the notes of the GitHub release, which is not marked as the latest release of the repository, since
+the implementations are released on their own. A release that already exists as a draft or a
+prerelease, or with other notes, fails the workflow and is put right by hand.
+
+When the crate is published and the release is not written, run the `release` job again. When a run
+fails after crates.io has taken the version, so that a run of the publish job finds it taken, check
+that what crates.io holds is what the tag holds (`cargo package` at the tag and
+`cargo download`-ing or unpacking the crate from crates.io, and comparing the two), and then write
+the release by hand with `gh release create rust/vX.Y.Z --verify-tag --latest=false` and the notes the
+workflow would write. A version that is taken is never published again, and the workflow does not
+take "already published" for "published".
+
+The workflow does not keep a token: crates.io proves the run to be this workflow of this repository,
+which the crate's settings on crates.io name as its trusted publisher (repository
+`raoh-project/notation-199x`, workflow `rust-release.yml`), and gives it a token for the run. A
+trusted publisher is named for a crate that exists, so the first version, 0.2.0, was published by hand
+and the trusted publisher is named once, by the owner of the crate.
