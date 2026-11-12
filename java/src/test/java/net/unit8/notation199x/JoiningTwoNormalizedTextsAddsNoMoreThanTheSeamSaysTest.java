@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Two texts each in a form, joined and normalized, come to no more code points than the two and
- * {@link Normalization#mostAddedAtASeam}; in a decomposing form, to exactly the two.
+ * {@link Normalization#seamGrowthBound}; in a decomposing form, to exactly the two.
  *
  * <p>Asked of {@link Normalization#normalize} as it answers. A text that comes out longer is a
  * starter that took in marks followed by marks that block them. So in a composing form each starter
@@ -38,18 +38,56 @@ class JoiningTwoNormalizedTextsAddsNoMoreThanTheSeamSaysTest {
 
     /** Whether {@code text}, in {@code form}, holds a mark once decomposed in the form. */
     private static boolean tookInMarks(Normalization.Form form, String text) {
+        return marksTakenIn(form, text) > 0;
+    }
+
+    /** How many marks {@code text}, in {@code form}, holds once decomposed in the form. */
+    private static long marksTakenIn(Normalization.Form form, String text) {
         Normalization.Form decomposing = form == Normalization.Form.NFC || form == Normalization.Form.NFD
                 ? Normalization.Form.NFD : Normalization.Form.NFKD;
         return Normalization.normalize(decomposing, text).codePoints()
-                .anyMatch(cp -> Normalization.combiningClass(cp) != 0);
+                .filter(cp -> Normalization.combiningClass(cp) != 0).count();
     }
 
     @Test
     void theDecomposingFormsAddNothingAndTheComposingFormsTheMarksAStarterComposesWith() {
-        assertEquals(0, Normalization.mostAddedAtASeam(Normalization.Form.NFD));
-        assertEquals(0, Normalization.mostAddedAtASeam(Normalization.Form.NFKD));
-        assertEquals(NormalizationTables.MOST_MARKS_COMPOSED, Normalization.mostAddedAtASeam(Normalization.Form.NFC));
-        assertEquals(NormalizationTables.MOST_MARKS_COMPOSED, Normalization.mostAddedAtASeam(Normalization.Form.NFKC));
+        assertEquals(0, Normalization.seamGrowthBound(Normalization.Form.NFD));
+        assertEquals(0, Normalization.seamGrowthBound(Normalization.Form.NFKD));
+        assertEquals(NormalizationTables.MOST_MARKS_COMPOSED, Normalization.seamGrowthBound(Normalization.Form.NFC));
+        assertEquals(NormalizationTables.MOST_MARKS_COMPOSED, Normalization.seamGrowthBound(Normalization.Form.NFKC));
+    }
+
+    /**
+     * A starter that took in as many marks as the bound followed by three marks: as many marks as
+     * it can give back, put in order among them and blocking them by their classes.
+     * The marks are those of {@link #representativeMarks}, three of them in a row that is its own
+     * normalization.
+     */
+    @Test
+    void aStarterThatTookInMarksFollowedByThreeMarksAddsNoMoreThanTheSeamSays() {
+        for (Normalization.Form form : List.of(Normalization.Form.NFC, Normalization.Form.NFKC)) {
+            List<String> marks = representativeMarks(form);
+            List<String> triples = new ArrayList<>();
+            for (String first : marks) {
+                for (String second : marks) {
+                    for (String third : marks) {
+                        String joined = first + second + third;
+                        if (Normalization.normalize(form, joined).equals(joined)) {
+                            triples.add(joined);
+                        }
+                    }
+                }
+            }
+            List<String> tookInMost = starters(form).stream()
+                    .filter(starter -> marksTakenIn(form, starter) == NormalizationTables.MOST_MARKS_COMPOSED)
+                    .toList();
+            assertTrue(!tookInMost.isEmpty(), () -> form + ": no starter took in as many marks as the bound");
+            for (String starter : tookInMost) {
+                for (String triple : triples) {
+                    heldTo(form, starter, triple);
+                }
+            }
+        }
     }
 
     @Test
@@ -113,8 +151,8 @@ class JoiningTwoNormalizedTextsAddsNoMoreThanTheSeamSaysTest {
     private static int heldTo(Normalization.Form form, String a, String b) {
         int added = count(Normalization.normalize(form, a + b)) - count(a) - count(b);
         String what = form + " " + hex(a) + " + " + hex(b);
-        assertTrue(added <= Normalization.mostAddedAtASeam(form), () -> what + " adds " + added);
-        if (Normalization.mostAddedAtASeam(form) == 0) {
+        assertTrue(added <= Normalization.seamGrowthBound(form), () -> what + " adds " + added);
+        if (Normalization.seamGrowthBound(form) == 0) {
             assertEquals(0, added, what);
         }
         return added;

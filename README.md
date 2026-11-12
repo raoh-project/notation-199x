@@ -123,12 +123,14 @@ The longest decomposition of a form is the most code points one code point comes
 decomposition, followed as far as it goes: by the canonical mapping alone in NFC and NFD, and by the
 canonical and the compatibility mappings in NFKC and NFKD, with Hangul's arithmetic in each. No text
 comes to more code points in the form than that many times as many as it holds, since a composition
-holds no more than what it composes. What a form adds at a seam is the most code points normalizing
-two texts joined, each already in the form, comes to past the two. It is none in NFD and NFKD, where
+holds no more than what it composes. The seam growth bound of a form is a bound on how many code
+points normalizing two texts joined, each already in the form, comes to past the two. It is a bound
+shown to hold, not the most a pair of texts is shown to add. It is none in NFD and NFKD, where
 joining puts the marks on either side of the seam in order and adds nothing. In NFC and NFKC it is
 the most marks one starter composes with, one after another: only the last starter of the first
 text can come out otherwise, and it gives back no more marks than it took in, where marks the second
-text begins with block them.
+text begins with block them. A pair is known to add one code point there; whether any pair adds
+more is not shown.
 
 The stable starters of a form, and the `White_Space` code points, are answered as a set of ranges
 as well as one code point at a time, and the two answer the same. For each code point, each case

@@ -567,11 +567,14 @@ public final class Normalization {
     }
 
     /**
-     * The most code points normalizing two texts joined comes to past the two, where each is
-     * already in {@code form}: for such texts {@code a} and {@code b},
-     * {@code |N(a + b)| <= |a| + |b| + mostAddedAtASeam(form)}.
+     * A bound on how many code points normalizing two texts joined comes to past the two, where
+     * each is already in {@code form}: for such texts {@code a} and {@code b},
+     * {@code |N(a + b)| <= |a| + |b| + seamGrowthBound(form)}.
      *
-     * <p>In NFD and NFKD it is 0. Neither text holds a code point that decomposes, so normalizing
+     * <p>A bound shown to hold, and not the most any two texts are shown to add: a caller may
+     * hold texts to it, and may not take a pair that adds this many to exist.
+     *
+     * <p>In NFD and NFKD it is 0, which is the least bound there is. Neither text holds a code point that decomposes, so normalizing
      * the two joined puts the marks on either side of where they meet in canonical order, which
      * moves code points and adds none.
      *
@@ -582,15 +585,15 @@ public final class Normalization {
      * composed with no more marks than this, and those marks are all it can give back, where the
      * marks {@code b} begins with are put in order among them and block one. Each mark {@code b}
      * begins with comes to one code point, since a mark that decomposes is in no text in a
-     * composing form, and every other composition makes the answer shorter. The bound need not be
-     * the least one: U+01D6 followed by U+0323, each its own NFC, comes out one code point longer
-     * than the two, the U+0323 put before the marks U+01D6 took in and composing with the starter in
-     * their place.
+     * composing form, and every other composition makes the answer shorter. That is no proof that
+     * the bound is the least one. A pair is known to add one: U+01D6 followed by U+0323, each its
+     * own NFC, comes out one code point longer than the two, the U+0323 put before the marks U+01D6
+     * took in and composing with the starter in their place.
      *
      * @param form the normalization form
-     * @return the most code points joining two texts in the form adds once normalized
+     * @return a bound on the code points joining two texts in the form adds once normalized
      */
-    public static int mostAddedAtASeam(Form form) {
+    public static int seamGrowthBound(Form form) {
         return form.composes ? NormalizationTables.MOST_MARKS_COMPOSED : 0;
     }
 
