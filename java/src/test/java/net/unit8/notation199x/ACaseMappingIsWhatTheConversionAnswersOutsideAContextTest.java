@@ -17,6 +17,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * after a cased letter, before one and between two; a code point it says does is answered otherwise
  * in one of those. Asked of {@link CaseConversion#lowercase} and {@link CaseConversion#uppercase} as
  * they answer, which write the mapping as it is and normalize nothing.
+ *
+ * <p>The conversion is run only for the code points it does not leave alone. One it leaves alone
+ * is answered as it is in each of those places, which
+ * {@link WhatACaseConversionLeavesAloneIsWhatItAnswersAsItIsTest} asks of every code point, so of
+ * those this asks only that the mapping is the code point and turns on no context.
  */
 class ACaseMappingIsWhatTheConversionAnswersOutsideAContextTest {
 
@@ -55,6 +60,14 @@ class ACaseMappingIsWhatTheConversionAnswersOutsideAContextTest {
             }
             String one = Character.toString(cp);
             String mapped = text(mapping.apply(cp));
+            int asked = cp;
+            if (leavesAlone.test(cp)) {
+                // That the conversion answers such a code point as it is in each of these places is
+                // asked of every code point by WhatACaseConversionLeavesAloneIsWhatItAnswersAsItIsTest.
+                assertEquals(one, mapped, () -> what + " maps U+" + Integer.toHexString(asked) + " to itself");
+                assertFalse(turnsOnContext.test(cp), () -> what + " U+" + Integer.toHexString(asked));
+                continue;
+            }
             assertFalse(mapped.isEmpty(), () -> what + " maps to at least one code point");
             boolean alike = true;
             for (List<String> around : AROUND) {
@@ -63,10 +76,9 @@ class ACaseMappingIsWhatTheConversionAnswersOutsideAContextTest {
                 alike &= conversion.apply(before + one + after)
                         .equals(conversion.apply(before) + mapped + conversion.apply(after));
             }
-            int asked = cp;
             assertEquals(!turnsOnContext.test(cp), alike, () -> what + " U+" + Integer.toHexString(asked));
-            assertEquals(!turnsOnContext.test(cp) && mapped.equals(one), leavesAlone.test(cp),
-                    () -> what + " leaves alone U+" + Integer.toHexString(asked));
+            assertFalse(!turnsOnContext.test(cp) && mapped.equals(one),
+                    () -> what + " does not leave alone U+" + Integer.toHexString(asked));
             if (turnsOnContext.test(cp)) {
                 turning++;
                 assertEquals(mapped, conversion.apply(one), what + " alone");

@@ -2,7 +2,8 @@ package net.unit8.notation199x;
 
 import org.junit.jupiter.api.Test;
 
-import java.util.Random;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -25,7 +26,8 @@ class NoCodePointDecomposesIntoMoreThanTheLongestTest {
             int longest = Normalization.longestDecomposition(form);
             int most = 0;
             for (int cp = 0; cp <= Character.MAX_CODE_POINT; cp++) {
-                if (cp >= 0xD800 && cp <= 0xDFFF) {
+                // A code point with no decomposition is its own in every form: one code point.
+                if (cp >= 0xD800 && cp <= 0xDFFF || Normalization.decomposeOne(cp, compatibility) == null) {
                     continue;
                 }
                 String one = Character.toString(cp);
@@ -41,20 +43,33 @@ class NoCodePointDecomposesIntoMoreThanTheLongestTest {
         assertEquals(18, count(Normalization.normalize(Normalization.Form.NFKD, "ﷺ")));
     }
 
+    /**
+     * Every text of up to three code points of an alphabet that holds the longest decomposition of
+     * each form, code points that decompose into marks alone or into several starters, marks that
+     * compose and reorder, and Hangul: each the decompositions of its code points put together, and
+     * composed or reordered across where they meet.
+     */
     @Test
     void noTextComesToMoreThanTheLongestDecompositionTimesItsLength() {
         int[] alphabet = {'a', 0x1F82, 0xFDFA, 0x0344, 0xAC01, 0x1D160, 0xFB2C, 0x0301, 0x3300, 0x01D6,
             0x0323, 0xFB01, 0x0F73, 0x212B};
-        Random random = new Random(1999);
-        for (int i = 0; i < 100_000; i++) {
-            StringBuilder text = new StringBuilder();
-            int length = random.nextInt(8);
-            for (int j = 0; j < length; j++) {
-                text.appendCodePoint(alphabet[random.nextInt(alphabet.length)]);
+        List<String> texts = new ArrayList<>(List.of(""));
+        for (int length = 1; length <= 3; length++) {
+            List<String> longer = new ArrayList<>();
+            for (String text : texts) {
+                if (text.codePointCount(0, text.length()) == length - 1) {
+                    for (int cp : alphabet) {
+                        longer.add(text + Character.toString(cp));
+                    }
+                }
             }
+            texts.addAll(longer);
+        }
+        for (String text : texts) {
+            long length = count(text);
             for (Normalization.Form form : Normalization.Form.values()) {
-                String normalized = Normalization.normalize(form, text.toString());
-                assertTrue(count(normalized) <= (long) Normalization.longestDecomposition(form) * length,
+                String normalized = Normalization.normalize(form, text);
+                assertTrue(count(normalized) <= Normalization.longestDecomposition(form) * length,
                         () -> form + " " + text);
             }
         }

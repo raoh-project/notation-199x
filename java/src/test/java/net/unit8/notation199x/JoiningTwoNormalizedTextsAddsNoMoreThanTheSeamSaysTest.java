@@ -3,14 +3,19 @@ package net.unit8.notation199x;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Random;
+import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,14 +25,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Two texts each in a form, joined and normalized, come to no more code points than the two and
  * {@link Normalization#seamGrowthBound}; in a decomposing form, to exactly the two.
  *
- * <p>Asked of {@link Normalization#normalize} as it answers. A text that comes out longer is a
- * starter that took in marks followed by marks that block them. So in a composing form each starter
- * that is its own normalization and took in a mark is followed by every mark that is its own
- * normalization, and by two marks of a set that holds every mark something composes with and one
- * mark of each combining class besides: two marks of one class that compose with nothing block and
- * are blocked alike. Every other starter that decomposes, normalized, is followed by one mark of
- * that set; in a decomposing form no mark composes, so the set there is a mark of each class.
- * Joined texts drawn at random are asked as well.
+ * <p>Asked of {@link Normalization#normalize} as it answers. Canonical order moves no mark past a
+ * starter, and a starter composes only with a starter right before it, so what the seam can change
+ * is the last starter of the first text, the marks it took in, and what the second text begins
+ * with: marks, or a starter that composes with it. Each case is asked once, and no case twice that
+ * comes out the same way:
+ *
+ * <ul>
+ *   <li>Each starter that decomposes in the form, normalized in it, is followed by rows of the
+ *       marks that tell apart what it comes to ({@link #marksThatTellApart}), as many as it took in
+ *       and at least one.</li>
+ *   <li>Each starter is followed by each starter it composes with.</li>
+ * </ul>
  */
 class JoiningTwoNormalizedTextsAddsNoMoreThanTheSeamSaysTest {
 
@@ -37,17 +46,9 @@ class JoiningTwoNormalizedTextsAddsNoMoreThanTheSeamSaysTest {
         return form == Normalization.Form.NFC || form == Normalization.Form.NFKC;
     }
 
-    /** Whether {@code text}, in {@code form}, holds a mark once decomposed in the form. */
-    private static boolean tookInMarks(Normalization.Form form, String text) {
-        return marksTakenIn(form, text) > 0;
-    }
-
-    /** How many marks {@code text}, in {@code form}, holds once decomposed in the form. */
-    private static long marksTakenIn(Normalization.Form form, String text) {
-        Normalization.Form decomposing = form == Normalization.Form.NFC || form == Normalization.Form.NFD
+    private static Normalization.Form decomposing(Normalization.Form form) {
+        return form == Normalization.Form.NFC || form == Normalization.Form.NFD
                 ? Normalization.Form.NFD : Normalization.Form.NFKD;
-        return Normalization.normalize(decomposing, text).codePoints()
-                .filter(cp -> Normalization.combiningClass(cp) != 0).count();
     }
 
     @Test
@@ -59,91 +60,72 @@ class JoiningTwoNormalizedTextsAddsNoMoreThanTheSeamSaysTest {
     }
 
     /**
-     * A starter that took in as many marks as the bound followed by three marks: as many marks as
-     * it can give back, put in order among them and blocking them by their classes.
-     * The marks are those of {@link #representativeMarks}, three of them in a row that is its own
-     * normalization.
+     * A starter that took in marks gives back no more than it took in, so it is followed by rows of
+     * up to that many marks, put in order among the ones it gives back and blocking them by their
+     * classes; one that took in none is followed by one mark. A starter that took in as many marks
+     * as the bound is among them, and so is U+01D6, which U+0323 makes one longer.
      */
     @Test
-    void aStarterThatTookInMarksFollowedByThreeMarksAddsNoMoreThanTheSeamSays() {
-        for (Normalization.Form form : List.of(Normalization.Form.NFC, Normalization.Form.NFKC)) {
-            List<String> marks = representativeMarks(form);
-            List<String> triples = new ArrayList<>();
-            for (String first : marks) {
-                for (String second : marks) {
-                    for (String third : marks) {
-                        String joined = first + second + third;
-                        if (Normalization.normalize(form, joined).equals(joined)) {
-                            triples.add(joined);
-                        }
-                    }
-                }
-            }
-            List<String> tookInMost = starters(form).stream()
-                    .filter(starter -> marksTakenIn(form, starter) == NormalizationTables.MOST_MARKS_COMPOSED)
-                    .toList();
-            assertTrue(!tookInMost.isEmpty(), () -> form + ": no starter took in as many marks as the bound");
-            for (String starter : tookInMost) {
-                for (String triple : triples) {
-                    heldTo(form, starter, triple);
-                }
-            }
-        }
-    }
-
-    @Test
-    void aStarterFollowedByOneMarkAddsNoMoreThanTheSeamSays() {
+    void aStarterFollowedByTheMarksThatTellApartWhatItComesToAddsNoMoreThanTheSeamSays() {
+        Map<Integer, Map<Integer, Integer>> withAMark = compositionsWithAMark();
         for (Normalization.Form form : FORMS) {
-            List<String> every = marks(form);
-            List<String> representative = representativeMarks(form);
+            SortedMap<Integer, List<Integer>> byClass = marksByClass(form);
             int most = Integer.MIN_VALUE;
+            int mostTakenIn = 0;
             for (String starter : starters(form)) {
-                for (String mark : composes(form) && tookInMarks(form, starter) ? every : representative) {
-                    most = Math.max(most, heldTo(form, starter, mark));
+                int[] decomposed = Normalization.normalize(decomposing(form), starter).codePoints().toArray();
+                // Some starters decompose into marks alone (U+0F73), and then there is no last starter.
+                int last = decomposed.length - 1;
+                while (last >= 0 && Normalization.combiningClass(decomposed[last]) != 0) {
+                    last--;
+                }
+                int takenIn = decomposed.length - 1 - last;
+                mostTakenIn = Math.max(mostTakenIn, takenIn);
+                List<Integer> marks = marksThatTellApart(form, decomposed, last, byClass, withAMark);
+                for (String row : rows(marks, Math.max(1, takenIn))) {
+                    most = Math.max(most, heldTo(form, starter, row));
                 }
             }
-            assertEquals(composes(form) ? 1 : 0, most, form + ": the most one mark adds");
+            if (composes(form)) {
+                assertEquals(NormalizationTables.MOST_MARKS_COMPOSED, mostTakenIn, form + ": the most marks taken in");
+            }
+            assertEquals(composes(form) ? 1 : 0, most, form + ": the most marks add");
         }
     }
 
+    /** A starter followed by a starter it composes with: by a composition of the tables, and by
+     *  Hangul's L+V and LV+T. */
     @Test
-    void aStarterThatTookInMarksFollowedByTwoMarksAddsNoMoreThanTheSeamSays() {
+    void aStarterFollowedByAStarterItComposesWithAddsNoMoreThanTheSeamSays() {
+        List<int[]> pairs = new ArrayList<>();
+        for (int cp = 0; cp <= Character.MAX_CODE_POINT; cp++) {
+            int[] mapped = isSurrogate(cp) ? null : Normalization.decomposition(cp, false);
+            if (mapped != null && mapped.length == 2 && Normalization.combiningClass(mapped[1]) == 0
+                    && Normalization.compose(mapped[0], mapped[1]) == cp) {
+                pairs.add(mapped);
+            }
+        }
+        for (int l = 0x1100; l < 0x1100 + 19; l++) {
+            for (int v = 0x1161; v < 0x1161 + 21; v++) {
+                pairs.add(new int[] {l, v});
+                int lv = Normalization.compose(l, v);
+                for (int t = 0x11A8; t < 0x11A7 + 28; t++) {
+                    pairs.add(new int[] {lv, t});
+                }
+            }
+        }
         for (Normalization.Form form : List.of(Normalization.Form.NFC, Normalization.Form.NFKC)) {
-            List<String> marks = representativeMarks(form);
-            List<String> pairs = new ArrayList<>();
-            for (String first : marks) {
-                for (String second : marks) {
-                    String joined = first + second;
-                    if (Normalization.normalize(form, joined).equals(joined)) {
-                        pairs.add(joined);
-                    }
+            int asked = 0;
+            for (int[] pair : pairs) {
+                String first = Character.toString(pair[0]);
+                String second = Character.toString(pair[1]);
+                if (Normalization.normalize(form, first).equals(first)
+                        && Normalization.normalize(form, second).equals(second)) {
+                    assertTrue(heldTo(form, first, second) < 0, () -> form + " " + hex(first + second));
+                    asked++;
                 }
             }
-            int most = Integer.MIN_VALUE;
-            for (String starter : starters(form)) {
-                if (tookInMarks(form, starter)) {
-                    for (String pair : pairs) {
-                        most = Math.max(most, heldTo(form, starter, pair));
-                    }
-                }
-            }
-            assertEquals(1, most, form + ": the most two marks add");
-        }
-    }
-
-    @Test
-    void joinedTextsDrawnAtRandomAddNoMoreThanTheSeamSays() {
-        int[] alphabet = {'a', 'u', 'A', 'U', 0x01D5, 0x01D6, 0x1EE5, 0x0300, 0x0301, 0x0308, 0x0304, 0x0323,
-            0x031B, 0x0345, 0x0313, 0x1F82, 0x1F00, 0x03B1, 0x0B47, 0x0B3E, 0x0B4B, 0x1100, 0x1161, 0x11A8,
-            0xAC00, 0xAC01, 0xFB01, 0xFDFA, 0x3300, 0x0F73, 0x0344, 0x05E9, 0x05BC, 0x05C1, 0xFB2C, 0x1D160,
-            0x0958, 0x093C, 0x0915, 0x00C5, 0x212B, 0x0327, 0x0338, 0x226E};
-        Random random = new Random(199);
-        for (int i = 0; i < 200_000; i++) {
-            String left = draw(random, alphabet);
-            String right = draw(random, alphabet);
-            for (Normalization.Form form : FORMS) {
-                heldTo(form, Normalization.normalize(form, left), Normalization.normalize(form, right));
-            }
+            assertTrue(asked > 19 * 21 * 28, form.toString());
         }
     }
 
@@ -158,6 +140,90 @@ class JoiningTwoNormalizedTextsAddsNoMoreThanTheSeamSaysTest {
             assertEquals(0, added, what);
         }
         return added;
+    }
+
+    /**
+     * The marks that tell apart what the last starter of {@code decomposed}, at {@code last} (-1
+     * where it holds none), and the marks after it come to in {@code form} when marks follow.
+     *
+     * <p>Every mark that composes with that starter, or with what it composes into with marks one
+     * after another, since each makes another composite. Of the marks that compose with none of
+     * them, what they do is be put in order and block, and both turn on how a class stands against
+     * the classes of the marks the starter took in and of the marks that compose: so one mark of
+     * each of those classes, and one of a class between each two of them, below the least and above
+     * the greatest. In a decomposing form no mark composes.
+     */
+    private static List<Integer> marksThatTellApart(Normalization.Form form, int[] decomposed, int last,
+                                                    SortedMap<Integer, List<Integer>> byClass,
+                                                    Map<Integer, Map<Integer, Integer>> withAMark) {
+        Set<Integer> composing = new LinkedHashSet<>();
+        if (composes(form) && last >= 0) {
+            Deque<Integer> reached = new ArrayDeque<>(List.of(decomposed[last]));
+            Set<Integer> seen = new HashSet<>(reached);
+            while (!reached.isEmpty()) {
+                withAMark.getOrDefault(reached.pop(), Map.of()).forEach((mark, composite) -> {
+                    composing.add(mark);
+                    if (seen.add(composite)) {
+                        reached.push(composite);
+                    }
+                });
+            }
+        }
+        NavigableSet<Integer> classes = new TreeSet<>();
+        for (int i = last + 1; i < decomposed.length; i++) {
+            classes.add(Normalization.combiningClass(decomposed[i]));
+        }
+        composing.forEach(mark -> classes.add(Normalization.combiningClass(mark)));
+        List<Integer> marks = new ArrayList<>(composing);
+        Set<Integer> standings = new HashSet<>();
+        byClass.forEach((markClass, ofTheClass) -> {
+            // A class stands against the others as itself where it is one of them, and otherwise
+            // by the least of them above it, or above them all.
+            Integer above = classes.ceiling(markClass);
+            int standing = above == null ? 256 : above.equals(markClass) ? markClass : 512 + above;
+            if (standings.add(standing)) {
+                ofTheClass.stream().filter(mark -> !composing.contains(mark)).findFirst().ifPresent(marks::add);
+            }
+        });
+        return marks;
+    }
+
+    /** Every row of one up to {@code longest} of {@code marks} whose classes never go down: the rows
+     *  that are their own normalization, since marks with no starter before them compose with none. */
+    private static List<String> rows(List<Integer> marks, int longest) {
+        List<String> rows = new ArrayList<>();
+        addRows(marks, longest, new StringBuilder(), 0, rows);
+        return rows;
+    }
+
+    private static void addRows(List<Integer> marks, int longest, StringBuilder row, int leastClass,
+                                List<String> rows) {
+        if (longest == 0) {
+            return;
+        }
+        for (int mark : marks) {
+            int markClass = Normalization.combiningClass(mark);
+            if (markClass >= leastClass) {
+                int length = row.length();
+                row.appendCodePoint(mark);
+                rows.add(row.toString());
+                addRows(marks, longest - 1, row, markClass, rows);
+                row.setLength(length);
+            }
+        }
+    }
+
+    /** For each code point a mark composes with, each such mark and what the two compose into. */
+    private static Map<Integer, Map<Integer, Integer>> compositionsWithAMark() {
+        Map<Integer, Map<Integer, Integer>> withAMark = new HashMap<>();
+        for (int cp = 0; cp <= Character.MAX_CODE_POINT; cp++) {
+            int[] mapped = isSurrogate(cp) ? null : Normalization.decomposition(cp, false);
+            if (mapped != null && mapped.length == 2 && Normalization.combiningClass(mapped[1]) != 0
+                    && Normalization.compose(mapped[0], mapped[1]) == cp) {
+                withAMark.computeIfAbsent(mapped[0], first -> new TreeMap<>()).put(mapped[1], cp);
+            }
+        }
+        return withAMark;
     }
 
     /** Each starter that decomposes in {@code form}, normalized in it: in a composing form only those
@@ -183,49 +249,16 @@ class JoiningTwoNormalizedTextsAddsNoMoreThanTheSeamSaysTest {
         return cp >= 0xD800 && cp <= 0xDFFF;
     }
 
-    /** The marks that are their own normalization in {@code form}. */
-    private static List<String> marks(Normalization.Form form) {
-        List<String> marks = new ArrayList<>();
+    /** The marks that are their own normalization in {@code form}, by combining class. */
+    private static SortedMap<Integer, List<Integer>> marksByClass(Normalization.Form form) {
+        SortedMap<Integer, List<Integer>> byClass = new TreeMap<>();
         for (int cp = 0; cp <= Character.MAX_CODE_POINT; cp++) {
-            if (isSurrogate(cp) || Normalization.combiningClass(cp) == 0) {
-                continue;
-            }
-            String one = Character.toString(cp);
-            if (Normalization.normalize(form, one).equals(one)) {
-                marks.add(one);
+            int markClass = isSurrogate(cp) ? 0 : Normalization.combiningClass(cp);
+            if (markClass != 0 && Normalization.normalize(form, Character.toString(cp)).equals(Character.toString(cp))) {
+                byClass.computeIfAbsent(markClass, ofTheClass -> new ArrayList<>()).add(cp);
             }
         }
-        return marks;
-    }
-
-    /** Of {@link #marks}, the first of each combining class, and in a composing form every one that is
-     *  the second of a two-member canonical decomposition. */
-    private static List<String> representativeMarks(Normalization.Form form) {
-        Set<String> seconds = new HashSet<>();
-        for (int cp = 0; cp <= Character.MAX_CODE_POINT; cp++) {
-            int[] mapped = isSurrogate(cp) ? null : Normalization.decomposition(cp, false);
-            if (mapped != null && mapped.length == 2) {
-                seconds.add(Character.toString(mapped[1]));
-            }
-        }
-        SortedMap<Integer, String> byClass = new TreeMap<>();
-        List<String> chosen = new ArrayList<>();
-        for (String mark : marks(form)) {
-            int markClass = Normalization.combiningClass(mark.codePointAt(0));
-            if (composes(form) && seconds.contains(mark) || byClass.putIfAbsent(markClass, mark) == null) {
-                chosen.add(mark);
-            }
-        }
-        return chosen;
-    }
-
-    private static String draw(Random random, int[] alphabet) {
-        StringBuilder text = new StringBuilder();
-        int length = random.nextInt(6);
-        for (int i = 0; i < length; i++) {
-            text.appendCodePoint(alphabet[random.nextInt(alphabet.length)]);
-        }
-        return text.toString();
+        return byClass;
     }
 
     private static int count(String text) {
