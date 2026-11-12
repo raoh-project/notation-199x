@@ -81,6 +81,7 @@ final class JavaEmitter {
         paged(lower, "POSITION", "For each code point, 0 where {@link #MAPPING} maps it to itself, and otherwise one"
                 + " more than where it is among {@link #MAPPING}'s code points. No code point"
                 + " {@link #FINAL_SIGMA} names is 0.", model.byCodePoint().lower(), true);
+        growth(lower, "{@link #MAPPING} or {@link #FINAL_SIGMA}", model.casingDerived().lower());
         holder(out, "Lower", "The tables of lowercasing, which a program that lowercases nothing never loads.",
                 lower);
 
@@ -89,11 +90,21 @@ final class JavaEmitter {
                 "every other code point maps to itself");
         paged(upper, "POSITION", "For each code point, 0 where {@link #MAPPING} maps it to itself, and otherwise one"
                 + " more than where it is among {@link #MAPPING}'s code points.", model.byCodePoint().upper(), true);
+        growth(upper, "{@link #MAPPING}", model.casingDerived().upper());
         holder(out, "Upper", "The tables of uppercasing, which a program that uppercases nothing never loads.",
                 upper);
 
         out.append("}\n");
         return out.toString();
+    }
+
+    /** The two numbers of {@code growth} as constants, of what {@code by} answers. */
+    private static void growth(StringBuilder out, String by, UcdModel.Growth growth) {
+        docComment(out, "The most code points one code point comes to as " + by + " answers it.");
+        out.append("    static final int MOST_MAPPED = ").append(growth.mapped()).append(";\n\n");
+        docComment(out, "The most code points one code point comes to as " + by + " answers it, canonically"
+                + " decomposed: the canonical mapping followed as far as it goes, or Hangul's arithmetic.");
+        out.append("    static final int MOST_DECOMPOSED = ").append(growth.decomposed()).append(";\n\n");
     }
 
     /**
