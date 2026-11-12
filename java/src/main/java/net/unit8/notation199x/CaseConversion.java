@@ -131,6 +131,93 @@ public final class CaseConversion {
         return position(CaseTables.Upper.POSITION_BLOCKS, CaseTables.Upper.POSITION_PAGES, cp) == 0;
     }
 
+    /**
+     * What {@link #lowercase} answers {@code cp} with wherever it does not turn on what stands around
+     * it: the full lowercase mapping, the one {@code SpecialCasing.txt} states with no condition
+     * where it states one and {@code UnicodeData.txt}'s simple one otherwise, and {@code cp} itself
+     * where neither maps it. The mapping a code point takes at the end of a cased run is not this
+     * one; {@link #lowercaseTurnsOnContext} says which code points have one.
+     *
+     * @param cp a scalar value
+     * @return the code points it maps to, one at least
+     */
+    public static int[] lowercaseMapping(int cp) {
+        return mapping(CaseTables.Lower.POSITION_BLOCKS, CaseTables.Lower.POSITION_PAGES,
+                CaseTables.Lower.MAPPING, cp);
+    }
+
+    /**
+     * What {@link #uppercase} answers {@code cp} with, wherever it stands: the full uppercase
+     * mapping, the one {@code SpecialCasing.txt} states with no condition where it states one and
+     * {@code UnicodeData.txt}'s simple one otherwise, and {@code cp} itself where neither maps it.
+     *
+     * @param cp a scalar value
+     * @return the code points it maps to, one at least
+     */
+    public static int[] uppercaseMapping(int cp) {
+        return mapping(CaseTables.Upper.POSITION_BLOCKS, CaseTables.Upper.POSITION_PAGES,
+                CaseTables.Upper.MAPPING, cp);
+    }
+
+    /**
+     * Whether what {@link #lowercase} answers {@code cp} with turns on what stands around it: whether
+     * it has a mapping it takes at the end of a cased run, Unicode's {@code Final_Sigma} condition,
+     * in place of {@link #lowercaseMapping}. Every other code point is answered with its
+     * {@link #lowercaseMapping} wherever it stands.
+     *
+     * @param cp a scalar value
+     * @return whether lowercasing it turns on the text around it
+     */
+    public static boolean lowercaseTurnsOnContext(int cp) {
+        return hasContext(cp, FINAL_SIGMA_NAMED);
+    }
+
+    /**
+     * Whether what {@link #uppercase} answers {@code cp} with turns on what stands around it, which
+     * it does for no code point: the uppercase conversion maps each code point by its
+     * {@link #uppercaseMapping} alone. The generator checks that Unicode states no uppercase mapping
+     * under a condition that is not a language's other than the one the code point has outside it,
+     * and stops where one does.
+     *
+     * @param cp a scalar value
+     * @return false, for every code point
+     */
+    public static boolean uppercaseTurnsOnContext(int cp) {
+        return false;
+    }
+
+    /**
+     * The simple lowercase mapping of {@code cp}, {@code UnicodeData.txt}'s field 13: one code point
+     * to one, and {@code cp} itself where the field is empty. No conversion here answers with it.
+     *
+     * @param cp a scalar value
+     * @return the code point it maps to
+     */
+    public static int simpleLowercase(int cp) {
+        int[] mapped = lookup(CaseTables.Simple.LOWER, cp);
+        return mapped == null ? cp : mapped[0];
+    }
+
+    /**
+     * The simple uppercase mapping of {@code cp}, {@code UnicodeData.txt}'s field 12: one code point
+     * to one, and {@code cp} itself where the field is empty. No conversion here answers with it.
+     *
+     * @param cp a scalar value
+     * @return the code point it maps to
+     */
+    public static int simpleUppercase(int cp) {
+        int[] mapped = lookup(CaseTables.Simple.UPPER, cp);
+        return mapped == null ? cp : mapped[0];
+    }
+
+    /** {@code cp}'s mapping where {@code blocks} and {@code pages} say it is among
+     *  {@code mapping}'s, a copy the caller may change, or {@code cp} alone where they say it maps to
+     *  itself. */
+    private static int[] mapping(byte[] blocks, char[] pages, CaseTables.Mapping mapping, int cp) {
+        int position = position(blocks, pages, cp);
+        return position == 0 ? new int[] {cp} : mapping.mapped()[position - 1].clone();
+    }
+
     /** Where {@code cp} is among a mapping's code points, one more than that, or 0 where the mapping
      *  maps it to itself; a {@code Final_Sigma} code point is never 0. */
     private static int position(byte[] blocks, char[] pages, int cp) {
