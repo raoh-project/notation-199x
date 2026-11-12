@@ -226,6 +226,9 @@ fn gregorian_days_answer_every_line_of_the_suite() {
 /// A text is a date exactly where its year, month and day are a day `epoch_day` answers.
 #[test]
 fn a_date_text_is_admitted_where_the_line_says_its_day_exists() {
+    // A month or a day below nought, or of three digits, cannot be written in a date's text, so the
+    // lines that name one are not asked here; the rest are, and must reach both answers.
+    let mut asked = [0usize; 2];
     each_line("suite/gregorian.txt", 5, |line| {
         let year = line.signed_number(0);
         let month = line.signed_number(1);
@@ -247,8 +250,15 @@ fn a_date_text_is_admitted_where_the_line_says_its_day_exists() {
         };
         let text = format!("{year_written}-{month:02}-{day:02}");
         let admitted = check_temporal(TemporalKind::Date, &text).is_ok();
+        asked[usize::from(!is_a_day)] += 1;
         (admitted != is_a_day).then(|| format!("{text} is admitted: {admitted}"))
     });
+    assert!(
+        asked[0] > 30 && asked[1] > 15,
+        "the lines asked reach both answers: {} and {}",
+        asked[0],
+        asked[1]
+    );
 }
 
 #[test]

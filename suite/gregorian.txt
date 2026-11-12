@@ -1,8 +1,8 @@
 # The days of the proleptic Gregorian calendar, counted from 1970-01-01.
 #
 # Source:
-#   Souther specification.adoc — stdlib-date, primitives (the calendar is the proleptic ISO one)
-#   README.md — the domain of the entry points that take a year, a month and a day
+#   Souther specification.adoc — primitives (a Date is a java.time.LocalDate), stdlib-date
+#   README.md — the counts from 1970-01-01 and the domain of the entry points
 #
 # year ; month ; day ; outcome ; epoch day
 #

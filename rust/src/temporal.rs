@@ -240,9 +240,11 @@ impl Fields {
     }
 
     fn day_exists(&self) -> bool {
-        (1..=12).contains(&self.month)
-            && self.day >= 1
-            && self.day <= i64::from(month_length_of(self.year, self.month as u32))
+        u32::try_from(self.month).is_ok_and(|month| {
+            (1..=12).contains(&month)
+                && self.day >= 1
+                && self.day <= i64::from(month_length_of(self.year, month))
+        })
     }
 
     /// Whether the time of day is one a clock shows. Hour 24 is not, whatever follows.

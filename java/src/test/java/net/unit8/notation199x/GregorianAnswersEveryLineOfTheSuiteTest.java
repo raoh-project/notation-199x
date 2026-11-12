@@ -8,6 +8,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * {@link Gregorian} answers every line of {@code suite/gregorian.txt}: which count a year, a month
@@ -45,6 +46,9 @@ class GregorianAnswersEveryLineOfTheSuiteTest {
     /** A text is a date exactly where its year, month and day are a day {@link Gregorian} answers. */
     @Test
     void aDateTextIsAdmittedWhereTheLineSaysItsDayExists() {
+        // A month or a day below nought, or of three digits, cannot be written in a date's text, so
+        // the lines that name one are not asked here; the rest are, and must reach both answers.
+        int[] asked = new int[2];
         assertEquals(List.of(), Suite.wrong("gregorian.txt", 5, line -> {
             long year = line.signedNumber(0);
             long month = line.signedNumber(1);
@@ -58,8 +62,11 @@ class GregorianAnswersEveryLineOfTheSuiteTest {
                     : year < 0 && year >= -9999 ? "-%04d".formatted(-year)
                     : (year > 0 ? "+" : "") + year) + "-%02d-%02d".formatted(month, day);
             boolean admitted = TemporalText.refusal(TemporalText.Kind.DATE, text).isEmpty();
+            asked[isADay ? 0 : 1]++;
             return admitted == isADay ? null : text + " is admitted: " + admitted;
         }));
+        assertTrue(asked[0] > 30 && asked[1] > 15, "the lines asked reach both answers: "
+                + asked[0] + " and " + asked[1]);
     }
 
     @Test

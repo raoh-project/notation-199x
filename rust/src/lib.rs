@@ -8,6 +8,9 @@
 //! Unicode Character Database by `gen/Generate.java` in the repository, and the rules are held to the
 //! vectors in its `suite` directory, the same vectors every other implementation is held to.
 //!
+//! Beside them it counts the days of the proleptic Gregorian calendar from 1970-01-01, for a caller
+//! that holds a day as a count: [`epoch_day`], [`day_of`] and [`length_of_month`].
+//!
 //! Every rule is stated of text that is a sequence of Unicode scalar values, which is what a `str`
 //! is, so there is no question to ask of text before it is taken in.
 //!
