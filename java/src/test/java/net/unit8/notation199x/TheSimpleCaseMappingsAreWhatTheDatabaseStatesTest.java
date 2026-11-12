@@ -37,10 +37,11 @@ class TheSimpleCaseMappingsAreWhatTheDatabaseStatesTest {
             if (cp >= 0xD800 && cp <= 0xDFFF) {
                 continue;
             }
+            int asked = cp;
             assertEquals((int) upper.getOrDefault(cp, cp), CaseConversion.simpleUppercase(cp),
-                    "U+" + Integer.toHexString(cp));
+                    () -> "U+" + Integer.toHexString(asked));
             assertEquals((int) lower.getOrDefault(cp, cp), CaseConversion.simpleLowercase(cp),
-                    "U+" + Integer.toHexString(cp));
+                    () -> "U+" + Integer.toHexString(asked));
         }
         assertEquals('A', CaseConversion.simpleUppercase('a'));
         assertEquals(0x00DF, CaseConversion.simpleLowercase(0x1E9E));

@@ -55,7 +55,7 @@ class ACaseMappingIsWhatTheConversionAnswersOutsideAContextTest {
             }
             String one = Character.toString(cp);
             String mapped = text(mapping.apply(cp));
-            assertFalse(mapped.isEmpty(), what + " maps to at least one code point");
+            assertFalse(mapped.isEmpty(), () -> what + " maps to at least one code point");
             boolean alike = true;
             for (List<String> around : AROUND) {
                 String before = around.get(0);

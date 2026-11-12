@@ -11,6 +11,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -150,8 +151,9 @@ class JoiningTwoNormalizedTextsAddsNoMoreThanTheSeamSaysTest {
      *  normalizing them joined adds. */
     private static int heldTo(Normalization.Form form, String a, String b) {
         int added = count(Normalization.normalize(form, a + b)) - count(a) - count(b);
-        String what = form + " " + hex(a) + " + " + hex(b);
-        assertTrue(added <= Normalization.seamGrowthBound(form), () -> what + " adds " + added);
+        // Written out only for a pair that fails: most of the time asking a pair takes otherwise.
+        Supplier<String> what = () -> form + " " + hex(a) + " + " + hex(b);
+        assertTrue(added <= Normalization.seamGrowthBound(form), () -> what.get() + " adds " + added);
         if (Normalization.seamGrowthBound(form) == 0) {
             assertEquals(0, added, what);
         }

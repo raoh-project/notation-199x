@@ -36,7 +36,8 @@ class TheSetsAsRangesAreWhatTheQuestionsOfOneCodePointAnswerTest {
                     continue;
                 }
                 boolean stable = Normalization.isStableStarter(form, cp);
-                assertEquals(stable, set.has(cp), form + " U+" + Integer.toHexString(cp));
+                int asked = cp;
+                assertEquals(stable, set.has(cp), () -> form + " U+" + Integer.toHexString(asked));
                 members += stable ? 1 : 0;
             }
             assertEquals(members, set.size(), form.toString());

@@ -55,7 +55,7 @@ class NoCodePointDecomposesIntoMoreThanTheLongestTest {
             for (Normalization.Form form : Normalization.Form.values()) {
                 String normalized = Normalization.normalize(form, text.toString());
                 assertTrue(count(normalized) <= (long) Normalization.longestDecomposition(form) * length,
-                        form + " " + text);
+                        () -> form + " " + text);
             }
         }
     }
