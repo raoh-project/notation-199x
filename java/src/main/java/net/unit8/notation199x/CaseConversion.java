@@ -109,6 +109,34 @@ public final class CaseConversion {
         return checked(s, false, longest, checkpoint);
     }
 
+    /**
+     * Whether {@link #lowercase} answers {@code cp} as it is wherever it stands in a text: its
+     * mapping is itself, and it is no code point whose mapping turns on what stands around it.
+     *
+     * @param cp a scalar value
+     * @return whether lowercasing leaves it as it is in every text
+     */
+    public static boolean lowercaseLeavesAlone(int cp) {
+        return position(CaseTables.Lower.POSITION_BLOCKS, CaseTables.Lower.POSITION_PAGES, cp) == 0;
+    }
+
+    /**
+     * Whether {@link #uppercase} answers {@code cp} as it is wherever it stands in a text: its
+     * mapping is itself, and no mapping of it turns on what stands around it.
+     *
+     * @param cp a scalar value
+     * @return whether uppercasing leaves it as it is in every text
+     */
+    public static boolean uppercaseLeavesAlone(int cp) {
+        return position(CaseTables.Upper.POSITION_BLOCKS, CaseTables.Upper.POSITION_PAGES, cp) == 0;
+    }
+
+    /** Where {@code cp} is among a mapping's code points, one more than that, or 0 where the mapping
+     *  maps it to itself; a {@code Final_Sigma} code point is never 0. */
+    private static int position(byte[] blocks, char[] pages, int cp) {
+        return pages[(blocks[cp >>> 8] & 0xFF) << 8 | cp & 0xFF];
+    }
+
     private static Outcome<@Nullable String> checked(String s, boolean lower, long longest,
                                                      Checkpoint checkpoint) {
         return Checkpoints.answer(() -> mapped(s, lower, longest, checkpoint));
