@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HexFormat;
@@ -27,8 +28,10 @@ import java.util.TreeSet;
  * the version it is pinned to, a {@code SpecialCasing.txt} condition that is neither
  * {@code Final_Sigma} nor a language this has been told is tailoring, a derived
  * {@code Full_Composition_Exclusion} that is not the published one, a quick check value that is not
- * Yes, No or Maybe, or a quick check whose {@code @missing} line does not give every code point Yes
- * stops it rather than answering a plausible-looking wrong table. An emitter only writes what is
+ * Yes, No or Maybe, a quick check whose {@code @missing} line does not give every code point Yes, an
+ * uppercase mapping stated under {@code Final_Sigma} other than the one outside it, or a case mapping
+ * or a decomposition that takes a code point across {@code White_Space} stops it rather than
+ * answering a plausible-looking wrong table. An emitter only writes what is
  * here in its language, and decides nothing about Unicode.
  *
  * @param version   the Unicode version every input states
@@ -63,9 +66,13 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
      *                      run, at whatever arity it comes at
      * @param cased         {@code Cased}
      * @param caseIgnorable {@code Case_Ignorable}
+     * @param simpleLower   the simple lowercase mapping, {@code UnicodeData.txt}'s field 13: one code
+     *                      point to one; a code point not here maps to itself
+     * @param simpleUpper   the simple uppercase mapping, field 12, the same way
      */
     record Casing(CodePointMapping lower, CodePointMapping upper, CodePointMapping finalSigma,
-                  RangeSet cased, RangeSet caseIgnorable) {}
+                  RangeSet cased, RangeSet caseIgnorable, CodePointMapping simpleLower,
+                  CodePointMapping simpleUpper) {}
 
     /**
      * The one-step decompositions and combining classes, and what composition cannot read off them.
@@ -114,6 +121,42 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
             }
             return cp;
         }
+
+        /**
+         * {@code cp}'s decomposition followed as far as it goes: by the canonical mapping, and with
+         * {@code compatibility} by the compatibility mapping as well, and a Hangul syllable by
+         * Hangul's arithmetic, which neither mapping states; {@code cp} itself where none
+         * decomposes it. Every decomposition the generator works out is this one, so no reader
+         * leaves out the syllables or the compatibility mapping where it is asked for.
+         *
+         * @param cp            a code point
+         * @param compatibility whether the compatibility mapping is followed as well
+         * @return the code points it comes to
+         */
+        List<Integer> fullyDecomposed(int cp, boolean compatibility) {
+            if (cp >= S_BASE && cp < S_BASE + S_COUNT) {
+                int index = cp - S_BASE;
+                int t = index % T_COUNT;
+                List<Integer> jamo = new ArrayList<>(List.of(L_BASE + index / (V_COUNT * T_COUNT),
+                        V_BASE + index % (V_COUNT * T_COUNT) / T_COUNT));
+                if (t != 0) {
+                    jamo.add(T_BASE + t);
+                }
+                return jamo;
+            }
+            int[] mapped = canonical.entries().get(cp);
+            if (mapped == null && compatibility) {
+                mapped = this.compatibility.entries().get(cp);
+            }
+            if (mapped == null) {
+                return List.of(cp);
+            }
+            List<Integer> full = new ArrayList<>();
+            for (int part : mapped) {
+                full.addAll(fullyDecomposed(part, compatibility));
+            }
+            return full;
+        }
     }
 
     /**
@@ -127,7 +170,11 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
      *                     are arithmetic, are not here.
      * @param longestDecomposition the most code points one code point decomposes into fully, by the
      *                     canonical and the compatibility mappings followed as far as they go, or by
-     *                     Hangul's arithmetic: what an implementation makes room for once
+     *                     Hangul's arithmetic: what an implementation makes room for once, and the
+     *                     most one code point comes to in NFKD
+     * @param longestCanonicalDecomposition the most code points one code point decomposes into by the
+     *                     canonical mapping alone followed as far as it goes, or by Hangul's
+     *                     arithmetic: the most one code point comes to in NFD
      * @param mostMarksComposed the most marks one starter composes with, one after another: the
      *                     longest chain of {@code compositions} each of whose second members is a
      *                     mark, starting from any starter. In a composing form, of the marks held
@@ -135,7 +182,8 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
      *                     bounded normalization knows from what it holds that the answer is past the
      *                     bound before it holds more than the bound and this many marks
      */
-    record NormalizationDerived(CodePointMapping compositions, int longestDecomposition, int mostMarksComposed) {}
+    record NormalizationDerived(CodePointMapping compositions, int longestDecomposition,
+                                int longestCanonicalDecomposition, int mostMarksComposed) {}
 
     /**
      * How much longer than the text a case conversion's answer can be, for each of the two
@@ -261,11 +309,49 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
         Decomposition decomposition = decomposition(unicodeData, compositionExclusions, derivedNormalizationProps);
         NormalizationDerived normalizationDerived = normalizationDerived(decomposition);
         Casing casing = casing(unicodeData, specialCasing, derivedCoreProperties);
+        RangeSet whiteSpace = ranges(propList, Set.of("White_Space"));
+        whiteSpaceLaws(casing, decomposition, whiteSpace);
         return new UcdModel(VERSION, Collections.unmodifiableMap(in.sha256), casing,
                 decomposition, normalizationDerived, casingDerived(casing, decomposition),
                 byCodePoint(casing, decomposition, normalizationDerived),
-                ranges(propList, Set.of("White_Space")),
+                whiteSpace,
                 ranges(derivedGeneralCategory, Set.of("Lu", "Ll", "Lt", "Lm", "Lo", "Nd")));
+    }
+
+    /**
+     * Checks what a caller may take of {@code White_Space} through a case conversion and a
+     * decomposition without asking the text: each mapping of the case conversions, the one at the end
+     * of a cased run too, and each code point's decomposition, canonical and full, takes a code point
+     * that is {@code White_Space} only to code points that are, and one that is not to code points of
+     * which at least one is not. So a text that is all {@code White_Space} is all of it after either,
+     * and a text that holds a code point that is not still holds one.
+     */
+    private static void whiteSpaceLaws(Casing casing, Decomposition decomposition, RangeSet whiteSpace) {
+        for (int cp = 0; cp <= Character.MAX_CODE_POINT; cp++) {
+            if (cp >= 0xD800 && cp <= 0xDFFF) {
+                continue;
+            }
+            int[] self = {cp};
+            List<int[]> answers = List.of(
+                    casing.lower().entries().getOrDefault(cp, self),
+                    casing.upper().entries().getOrDefault(cp, self),
+                    casing.finalSigma().entries().getOrDefault(cp, self),
+                    decomposition.fullyDecomposed(cp, false).stream().mapToInt(Integer::intValue).toArray(),
+                    decomposition.fullyDecomposed(cp, true).stream().mapToInt(Integer::intValue).toArray());
+            boolean space = whiteSpace.contains(cp);
+            for (int[] answer : answers) {
+                boolean allSpace = true;
+                for (int part : answer) {
+                    allSpace &= whiteSpace.contains(part);
+                }
+                if (allSpace != space) {
+                    throw new IllegalStateException("U+" + hex(cp) + (space ? " is" : " is not")
+                            + " White_Space, and a case mapping or a decomposition takes it to "
+                            + hexSet(new TreeSet<>(Arrays.stream(answer).boxed().toList()))
+                            + (allSpace ? ", all of which are" : ", not all of which are"));
+                }
+            }
+        }
     }
 
     /** The ranges of the lines whose second field is one of {@code taken}, in order of code point.
@@ -341,6 +427,7 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
         SortedMap<Integer, int[]> fullLower = new TreeMap<>();
         SortedMap<Integer, int[]> fullUpper = new TreeMap<>();
         SortedMap<Integer, int[]> finalSigma = new TreeMap<>();
+        SortedMap<Integer, int[]> finalSigmaUpper = new TreeMap<>();
         for (String rawLine : specialCasing) {
             String line = rawLine.replaceFirst("#.*", "");
             if (line.isBlank()) {
@@ -355,6 +442,7 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
                 fullUpper.put(cp, codePoints(f[3]));
             } else if (condition.equalsIgnoreCase("Final_Sigma")) {
                 finalSigma.put(cp, codePoints(f[1]));
+                finalSigmaUpper.put(cp, codePoints(f[3]));
             } else if (KNOWN_TAILORING_LANGUAGES.contains(firstWord(condition).toLowerCase(Locale.ROOT))) {
                 // Locale tailoring, outside the untailored conversion: read and discarded.
             } else {
@@ -377,8 +465,21 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
             }
         }
 
+        SortedMap<Integer, int[]> simpleLowerMapping = new TreeMap<>();
+        simpleLower.forEach((cp, mapped) -> simpleLowerMapping.put(cp, new int[] {mapped}));
+        SortedMap<Integer, int[]> simpleUpperMapping = new TreeMap<>();
+        simpleUpper.forEach((cp, mapped) -> simpleUpperMapping.put(cp, new int[] {mapped}));
         Casing read = new Casing(merge(simpleLower, fullLower), merge(simpleUpper, fullUpper),
-                new CodePointMapping(finalSigma), new RangeSet(cased), new RangeSet(caseIgnorable));
+                new CodePointMapping(finalSigma), new RangeSet(cased), new RangeSet(caseIgnorable),
+                new CodePointMapping(simpleLowerMapping), new CodePointMapping(simpleUpperMapping));
+        // The uppercase conversion reads no context, so a line stated under Final_Sigma is to give
+        // the code point the uppercase mapping it has outside the context.
+        finalSigmaUpper.forEach((cp, upper) -> {
+            if (!Arrays.equals(upper, read.upper().entries().getOrDefault(cp, new int[] {cp}))) {
+                throw new IllegalStateException("U+" + hex(cp) + "'s uppercase mapping turns on Final_Sigma,"
+                        + " where the uppercase conversion maps each code point by itself");
+            }
+        });
         // A bounded conversion counts each code point it reads as at least one of the answer.
         for (CodePointMapping mapping : List.of(read.lower(), read.upper(), read.finalSigma())) {
             mapping.entries().forEach((cp, mapped) -> {
@@ -603,14 +704,13 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
                 compositions.put(cp, mapped);
             }
         });
-        // A Hangul syllable decomposes into two or three jamo, none of which decomposes.
-        int longest = 3;
-        for (CodePointMapping mapping : List.of(decomposition.canonical(), decomposition.compatibility())) {
-            for (int cp : mapping.entries().keySet()) {
-                longest = Math.max(longest, fullDecomposition(decomposition, cp).size());
-            }
+        int longest = 0;
+        int longestCanonical = 0;
+        for (int cp = 0; cp <= Character.MAX_CODE_POINT; cp++) {
+            longest = Math.max(longest, decomposition.fullyDecomposed(cp, true).size());
+            longestCanonical = Math.max(longestCanonical, decomposition.fullyDecomposed(cp, false).size());
         }
-        return new NormalizationDerived(new CodePointMapping(compositions), longest,
+        return new NormalizationDerived(new CodePointMapping(compositions), longest, longestCanonical,
                 mostMarksComposed(compositions, ccc));
     }
 
@@ -686,7 +786,7 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
                 mapped = Math.max(mapped, answer.length);
                 int length = 0;
                 for (int part : answer) {
-                    length += canonicallyDecomposedLength(decomposition, part);
+                    length += decomposition.fullyDecomposed(part, false).size();
                 }
                 decomposed = Math.max(decomposed, length);
             }
@@ -699,39 +799,7 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
     private static final int S_BASE = 0xAC00;
     private static final int S_COUNT = 11172;
 
-    /** How many code points {@code cp} canonically decomposes into, followed as far as it goes, or by
-     *  Hangul's arithmetic: one where it does not decompose. */
-    private static int canonicallyDecomposedLength(Decomposition decomposition, int cp) {
-        if (cp >= S_BASE && cp < S_BASE + S_COUNT) {
-            return (cp - S_BASE) % T_COUNT == 0 ? 2 : 3;
-        }
-        int[] mapped = decomposition.canonical().entries().get(cp);
-        if (mapped == null) {
-            return 1;
-        }
-        int length = 0;
-        for (int part : mapped) {
-            length += canonicallyDecomposedLength(decomposition, part);
-        }
-        return length;
-    }
-
-    /** {@code cp}'s decomposition by the canonical and the compatibility mappings, followed as far as
-     *  they go: {@code cp} itself where neither names it. */
-    private static List<Integer> fullDecomposition(Decomposition decomposition, int cp) {
-        int[] mapped = decomposition.canonical().entries().get(cp);
-        if (mapped == null) {
-            mapped = decomposition.compatibility().entries().get(cp);
-        }
-        if (mapped == null) {
-            return List.of(cp);
-        }
-        List<Integer> full = new ArrayList<>();
-        for (int part : mapped) {
-            full.addAll(fullDecomposition(decomposition, part));
-        }
-        return full;
-    }
+    private static final int L_BASE = 0x1100;
 
     /** A quick check's values, by their short and long names in {@code PropertyValueAliases.txt}. */
     enum QuickCheck {

@@ -158,6 +158,9 @@ final class NormalizationTables {
     /** The most code points one code point decomposes into fully, in any form: the room a decomposition is written into. */
     static final int LONGEST_DECOMPOSITION = 18;
 
+    /** The most code points one code point decomposes into by the canonical mapping alone, followed as far as it goes, or by Hangul's arithmetic. */
+    static final int LONGEST_CANONICAL_DECOMPOSITION = 4;
+
     /** The most marks one starter composes with, one after another, in a composing form: of the marks held after a starter, no more than this many are gone from the answer. */
     static final int MOST_MARKS_COMPOSED = 3;
 }

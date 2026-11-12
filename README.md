@@ -115,6 +115,38 @@ step limit and a deadline and has to stop a rule inside one of those calls. An i
 one when a caller of its own has to stop that rule part of the way through, beside the entry point
 without one, so nothing that calls that changes.
 
+Java also answers what the tables say of a code point and of a form, for Souther, whose compiler
+bounds what the rules answer from these facts rather than from laws of Unicode it writes itself. An
+implementation that gains one of them answers it as Java does.
+
+The longest decomposition of a form is the most code points one code point comes to in the form's
+decomposition, followed as far as it goes: by the canonical mapping alone in NFC and NFD, and by the
+canonical and the compatibility mappings in NFKC and NFKD, with Hangul's arithmetic in each. No text
+comes to more code points in the form than that many times as many as it holds, since a composition
+holds no more than what it composes. The seam growth bound of a form is a bound on how many code
+points normalizing two texts joined, each already in the form, comes to past the two. It is a bound
+shown to hold, not the most a pair of texts is shown to add. It is none in NFD and NFKD, where
+joining puts the marks on either side of the seam in order and adds nothing. In NFC and NFKC it is
+the most marks one starter composes with, one after another: only the last starter of the first
+text can come out otherwise, and it gives back no more marks than it took in, where marks the second
+text begins with block them. A pair is known to add one code point there; whether any pair adds
+more is not shown.
+
+The stable starters of a form, and the `White_Space` code points, are answered as a set of ranges
+as well as one code point at a time, and the two answer the same. For each code point, each case
+conversion answers the mapping it takes outside any context, the code point itself where it maps to
+itself, and whether what the conversion answers for it turns on what stands around it. In Unicode
+18.0.0 that is the `Final_Sigma` code point in the lowercase conversion and none in the uppercase
+one. The simple mappings of `UnicodeData.txt`, which no conversion here answers with, are answered
+one code point at a time.
+
+A case conversion and a normalization keep `White_Space` apart from the rest. Each mapping of
+either conversion, the one at the end of a cased run too, and each code point's canonical and
+compatibility decomposition, take a code point that is `White_Space` only to code points that are,
+and one that is not to code points at least one of which is not. So a text that is all `White_Space`
+is all of it once converted or normalized, and one that holds a code point that is not still holds
+one. The generator checks it of every code point and stops where it does not hold.
+
 Every rule is stated of text that is a sequence of Unicode scalar values. Where a language's string
 can hold something else, as a Java `String` can hold half of a surrogate pair, the implementation
 has the question a caller asks before it takes text in, and a reader of untrusted text refuses it
