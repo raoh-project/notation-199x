@@ -22,6 +22,12 @@ of the branch says so with the line `Benchmark-baseline: none` in its message, a
 change did to the counts was compared when it was made, in the pull request that made it, and the
 release pull request is run against itself.
 
+The tags of a release are pushed one at a time. GitHub makes no push event, so starts no workflow, for
+a push of more than three tags, and a tag already on the remote starts none when it is pushed again
+with the same commit. A push of four tags at once is undone by deleting them from the remote
+(`git push origin --delete <tag>...`) and pushing them again one by one, which is safe only while no
+workflow has run for them.
+
 ## Java
 
 `develop` holds the next version as a snapshot, `X.Y.Z-SNAPSHOT`, and a release is that version
@@ -199,9 +205,11 @@ an `images-read` that is not the formats `Pattern::from_image` accepts an image 
 `images-written` that names a format `image/` does not define. What a crate writes cannot be asked of
 it, so nothing finds a writer that is added: whoever adds one adds its format to `images-written` in
 the same commit, with a test that reads back what it writes. The workflow writes the same three lines
-as the notes of the GitHub release, which is not marked as the latest release of the repository, since
-the implementations are released on their own. A release that already exists as a draft or a
-prerelease, or with other notes, fails the workflow and is put right by hand.
+as the notes of the GitHub release. It is created with `--latest=false`, which does not make GitHub
+leave it out of `Latest`: `Latest` is of the repository and not of an implementation, and where no
+release is marked as the latest, GitHub names the newest one. So `Latest` says nothing of the
+implementations, and the release of the crate is shown as the latest. A release that already exists
+as a draft or a prerelease, or with other notes, fails the workflow and is put right by hand.
 
 When the crate is published and the release is not written, run the `release` job again. When a run
 fails after crates.io has taken the version, so that a run of the publish job finds it taken, check

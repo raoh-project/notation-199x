@@ -109,6 +109,71 @@ public final class CaseConversion {
         return checked(s, false, longest, checkpoint);
     }
 
+    /**
+     * Whether {@link #lowercase} answers {@code cp} as it is wherever it stands in a text: its
+     * mapping is itself, and it is no code point whose mapping turns on what stands around it.
+     *
+     * @param cp a scalar value
+     * @return whether lowercasing leaves it as it is in every text
+     */
+    public static boolean lowercaseLeavesAlone(int cp) {
+        return position(CaseTables.Lower.POSITION_BLOCKS, CaseTables.Lower.POSITION_PAGES, cp) == 0;
+    }
+
+    /**
+     * Whether {@link #uppercase} answers {@code cp} as it is wherever it stands in a text: its
+     * mapping is itself, and no mapping of it turns on what stands around it.
+     *
+     * @param cp a scalar value
+     * @return whether uppercasing leaves it as it is in every text
+     */
+    public static boolean uppercaseLeavesAlone(int cp) {
+        return position(CaseTables.Upper.POSITION_BLOCKS, CaseTables.Upper.POSITION_PAGES, cp) == 0;
+    }
+
+    /** Where {@code cp} is among a mapping's code points, one more than that, or 0 where the mapping
+     *  maps it to itself; a {@code Final_Sigma} code point is never 0. */
+    private static int position(byte[] blocks, char[] pages, int cp) {
+        return pages[(blocks[cp >>> 8] & 0xFF) << 8 | cp & 0xFF];
+    }
+
+    /**
+     * How much longer than the text a case conversion's answer can be, as a number of code points
+     * per code point of the text.
+     *
+     * <p>A conversion maps each code point of the text by itself, the sigma at the end of a cased
+     * run by a mapping of its own, so its answer is no longer than {@code mapped} times the text.
+     * The canonical decomposition of that answer is no longer than {@code decomposed} times the
+     * text, and a canonical composition holds no more code points than what it composes, so
+     * neither is the answer in any canonical form. A caller that holds text to a longest length
+     * knows from these alone that a text short enough converts, and normalizes, within it.
+     *
+     * @param mapped     the most code points one code point of the text comes to in the answer
+     * @param decomposed the most code points one code point of the text comes to in the answer
+     *                   canonically decomposed
+     */
+    public record Growth(int mapped, int decomposed) {}
+
+    /**
+     * How much longer than the text {@link #lowercase} answers can be, as Unicode 18.0.0's tables
+     * say it.
+     *
+     * @return the growth of the lowercase conversion
+     */
+    public static Growth lowercaseGrowth() {
+        return new Growth(CaseTables.Lower.MOST_MAPPED, CaseTables.Lower.MOST_DECOMPOSED);
+    }
+
+    /**
+     * How much longer than the text {@link #uppercase} answers can be, as Unicode 18.0.0's tables
+     * say it.
+     *
+     * @return the growth of the uppercase conversion
+     */
+    public static Growth uppercaseGrowth() {
+        return new Growth(CaseTables.Upper.MOST_MAPPED, CaseTables.Upper.MOST_DECOMPOSED);
+    }
+
     private static Outcome<@Nullable String> checked(String s, boolean lower, long longest,
                                                      Checkpoint checkpoint) {
         return Checkpoints.answer(() -> mapped(s, lower, longest, checkpoint));

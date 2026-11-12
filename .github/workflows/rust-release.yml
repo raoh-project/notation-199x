@@ -118,6 +118,7 @@ jobs:
             echo "$TAG already has a release that says what the crate implements"
             exit 0
           fi
-          # Not the latest release of the repository: Java, Go, PHP and the npm package are released
-          # on their own, and what is latest of one says nothing of the others.
+          # Not chosen as the latest release of the repository: Java, Go, PHP and the npm package are
+          # released on their own, and what is latest of one says nothing of the others. Where no
+          # release is marked, GitHub names the newest one, so this one is shown as latest all the same.
           gh release create "$TAG" --verify-tag --latest=false --title "$TAG" --notes-file notes.md

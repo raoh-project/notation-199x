@@ -170,6 +170,24 @@ impl Line {
         }
     }
 
+    /// Reads a field as a decimal with a minus sign where it is below nought.
+    pub fn signed_number(&mut self, i: usize) -> i64 {
+        let field = self.take(i);
+        let digits = field.strip_prefix('-').unwrap_or(&field);
+        let canonical = digits == "0" && field == "0"
+            || (!digits.starts_with('0')
+                && !digits.is_empty()
+                && digits.len() <= 18
+                && digits.bytes().all(|b| b.is_ascii_digit()));
+        match field.parse::<i64>().ok().filter(|_| canonical) {
+            Some(n) => n,
+            None => {
+                self.wrong(i, "a signed decimal");
+                0
+            }
+        }
+    }
+
     /// Reads a field as an unsigned decimal, or `None` where it is empty.
     pub fn number_or_nothing(&mut self, i: usize) -> Option<usize> {
         if self.is_empty(i) {

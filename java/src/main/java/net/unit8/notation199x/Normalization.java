@@ -485,9 +485,18 @@ public final class Normalization {
         return room < s.length() - at ? at + (int) room + 1 : s.length();
     }
 
-    /** Whether {@code cp} is a stable starter of {@code form}: a starter whose quick check for the
-     *  form is Yes. */
-    static boolean isStableStarter(Form form, int cp) {
+    /**
+     * Whether {@code cp} is a stable starter of {@code form}: a starter whose quick check for the
+     * form is Yes. A text made only of such code points is its own normalization in the form,
+     * however they are ordered, and one of them ends what comes before it: no mark after it is put
+     * in order before it or composes with a starter before it, and it composes with nothing before
+     * it.
+     *
+     * @param form the normalization form
+     * @param cp   a code point
+     * @return whether it is a stable starter of the form
+     */
+    public static boolean isStableStarter(Form form, int cp) {
         return isStable(form.stableBit, cp);
     }
 
