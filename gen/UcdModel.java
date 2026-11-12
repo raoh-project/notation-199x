@@ -121,6 +121,42 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
             }
             return cp;
         }
+
+        /**
+         * {@code cp}'s decomposition followed as far as it goes: by the canonical mapping, and with
+         * {@code compatibility} by the compatibility mapping as well, and a Hangul syllable by
+         * Hangul's arithmetic, which neither mapping states; {@code cp} itself where none
+         * decomposes it. Every decomposition the generator works out is this one, so no reader
+         * leaves out the syllables or the compatibility mapping where it is asked for.
+         *
+         * @param cp            a code point
+         * @param compatibility whether the compatibility mapping is followed as well
+         * @return the code points it comes to
+         */
+        List<Integer> fullyDecomposed(int cp, boolean compatibility) {
+            if (cp >= S_BASE && cp < S_BASE + S_COUNT) {
+                int index = cp - S_BASE;
+                int t = index % T_COUNT;
+                List<Integer> jamo = new ArrayList<>(List.of(L_BASE + index / (V_COUNT * T_COUNT),
+                        V_BASE + index % (V_COUNT * T_COUNT) / T_COUNT));
+                if (t != 0) {
+                    jamo.add(T_BASE + t);
+                }
+                return jamo;
+            }
+            int[] mapped = canonical.entries().get(cp);
+            if (mapped == null && compatibility) {
+                mapped = this.compatibility.entries().get(cp);
+            }
+            if (mapped == null) {
+                return List.of(cp);
+            }
+            List<Integer> full = new ArrayList<>();
+            for (int part : mapped) {
+                full.addAll(fullyDecomposed(part, compatibility));
+            }
+            return full;
+        }
     }
 
     /**
@@ -300,8 +336,8 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
                     casing.lower().entries().getOrDefault(cp, self),
                     casing.upper().entries().getOrDefault(cp, self),
                     casing.finalSigma().entries().getOrDefault(cp, self),
-                    canonicalDecomposition(decomposition, cp).stream().mapToInt(Integer::intValue).toArray(),
-                    fullDecomposition(decomposition, cp).stream().mapToInt(Integer::intValue).toArray());
+                    decomposition.fullyDecomposed(cp, false).stream().mapToInt(Integer::intValue).toArray(),
+                    decomposition.fullyDecomposed(cp, true).stream().mapToInt(Integer::intValue).toArray());
             boolean space = whiteSpace.contains(cp);
             for (int[] answer : answers) {
                 boolean allSpace = true;
@@ -668,16 +704,11 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
                 compositions.put(cp, mapped);
             }
         });
-        // A Hangul syllable decomposes into two or three jamo, none of which decomposes.
-        int longest = 3;
-        for (CodePointMapping mapping : List.of(decomposition.canonical(), decomposition.compatibility())) {
-            for (int cp : mapping.entries().keySet()) {
-                longest = Math.max(longest, fullDecomposition(decomposition, cp).size());
-            }
-        }
+        int longest = 0;
         int longestCanonical = 0;
         for (int cp = 0; cp <= Character.MAX_CODE_POINT; cp++) {
-            longestCanonical = Math.max(longestCanonical, canonicallyDecomposedLength(decomposition, cp));
+            longest = Math.max(longest, decomposition.fullyDecomposed(cp, true).size());
+            longestCanonical = Math.max(longestCanonical, decomposition.fullyDecomposed(cp, false).size());
         }
         return new NormalizationDerived(new CodePointMapping(compositions), longest, longestCanonical,
                 mostMarksComposed(compositions, ccc));
@@ -755,7 +786,7 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
                 mapped = Math.max(mapped, answer.length);
                 int length = 0;
                 for (int part : answer) {
-                    length += canonicallyDecomposedLength(decomposition, part);
+                    length += decomposition.fullyDecomposed(part, false).size();
                 }
                 decomposed = Math.max(decomposed, length);
             }
@@ -768,54 +799,7 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
     private static final int S_BASE = 0xAC00;
     private static final int S_COUNT = 11172;
 
-    /** How many code points {@code cp} canonically decomposes into, followed as far as it goes, or by
-     *  Hangul's arithmetic: one where it does not decompose. */
-    private static int canonicallyDecomposedLength(Decomposition decomposition, int cp) {
-        return canonicalDecomposition(decomposition, cp).size();
-    }
-
     private static final int L_BASE = 0x1100;
-
-    /** {@code cp}'s canonical decomposition, the canonical mapping followed as far as it goes, or
-     *  Hangul's arithmetic: {@code cp} itself where it does not decompose. */
-    private static List<Integer> canonicalDecomposition(Decomposition decomposition, int cp) {
-        if (cp >= S_BASE && cp < S_BASE + S_COUNT) {
-            int index = cp - S_BASE;
-            int t = index % T_COUNT;
-            List<Integer> jamo = new ArrayList<>(List.of(L_BASE + index / (V_COUNT * T_COUNT),
-                    V_BASE + index % (V_COUNT * T_COUNT) / T_COUNT));
-            if (t != 0) {
-                jamo.add(T_BASE + t);
-            }
-            return jamo;
-        }
-        int[] mapped = decomposition.canonical().entries().get(cp);
-        if (mapped == null) {
-            return List.of(cp);
-        }
-        List<Integer> full = new ArrayList<>();
-        for (int part : mapped) {
-            full.addAll(canonicalDecomposition(decomposition, part));
-        }
-        return full;
-    }
-
-    /** {@code cp}'s decomposition by the canonical and the compatibility mappings, followed as far as
-     *  they go: {@code cp} itself where neither names it. */
-    private static List<Integer> fullDecomposition(Decomposition decomposition, int cp) {
-        int[] mapped = decomposition.canonical().entries().get(cp);
-        if (mapped == null) {
-            mapped = decomposition.compatibility().entries().get(cp);
-        }
-        if (mapped == null) {
-            return List.of(cp);
-        }
-        List<Integer> full = new ArrayList<>();
-        for (int part : mapped) {
-            full.addAll(fullDecomposition(decomposition, part));
-        }
-        return full;
-    }
 
     /** A quick check's values, by their short and long names in {@code PropertyValueAliases.txt}. */
     enum QuickCheck {
