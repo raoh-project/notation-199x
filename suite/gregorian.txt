@@ -1,0 +1,88 @@
+# The days of the proleptic Gregorian calendar, counted from 1970-01-01.
+#
+# Source:
+#   Souther specification.adoc — stdlib-date, primitives (the calendar is the proleptic ISO one)
+#   README.md — the domain of the entry points that take a year, a month and a day
+#
+# year ; month ; day ; outcome ; epoch day
+#
+# year, month and day are signed decimals, the year astronomical: the year before 1 is 0. outcome is
+# DAY, where the three name a day of a year from -999999999 to 999999999, or NONE; epoch day is the
+# day's count from 1970-01-01, negative before it, and is empty where the outcome is NONE.
+#
+# A year is a leap year when 4 divides it and 100 does not, or when 400 does: 2000, 0 and -400 are,
+# 1900, 2100 and -100 are not. The months are the lines 2023 gives, each at its last day and one
+# past it.
+
+1970 ; 1 ; 1 ; DAY ; 0
+1969 ; 12 ; 31 ; DAY ; -1
+1970 ; 1 ; 2 ; DAY ; 1
+1970 ; 1 ; 0 ; NONE ;
+1970 ; 0 ; 1 ; NONE ;
+1970 ; 13 ; 1 ; NONE ;
+1970 ; -1 ; 1 ; NONE ;
+1970 ; 1 ; -1 ; NONE ;
+1970 ; 12 ; 31 ; DAY ; 364
+1971 ; 1 ; 1 ; DAY ; 365
+2000 ; 2 ; 29 ; DAY ; 11016
+2000 ; 2 ; 30 ; NONE ;
+1900 ; 2 ; 29 ; NONE ;
+2100 ; 2 ; 29 ; NONE ;
+2024 ; 2 ; 28 ; DAY ; 19781
+2024 ; 2 ; 29 ; DAY ; 19782
+2024 ; 2 ; 30 ; NONE ;
+2024 ; 3 ; 1 ; DAY ; 19783
+2023 ; 2 ; 29 ; NONE ;
+0 ; 1 ; 1 ; DAY ; -719528
+0 ; 2 ; 29 ; DAY ; -719469
+0 ; 3 ; 1 ; DAY ; -719468
+-1 ; 2 ; 29 ; NONE ;
+-1 ; 12 ; 31 ; DAY ; -719529
+-4 ; 2 ; 29 ; DAY ; -720930
+-100 ; 2 ; 29 ; NONE ;
+-400 ; 2 ; 29 ; DAY ; -865566
+-401 ; 2 ; 28 ; DAY ; -865932
+9999 ; 12 ; 31 ; DAY ; 2932896
+10000 ; 1 ; 1 ; DAY ; 2932897
+10000 ; 2 ; 29 ; DAY ; 2932956
+-9999 ; 1 ; 1 ; DAY ; -4371587
+-10000 ; 12 ; 31 ; DAY ; -4371588
+
+# The ends of the years a date holds, a leap day in the last leap years inside them, and the days
+# either side of them.
+-999999999 ; 1 ; 1 ; DAY ; -365243219162
+-999999999 ; 1 ; 0 ; NONE ;
+-999999999 ; 12 ; 31 ; DAY ; -365243218798
+-1000000000 ; 12 ; 31 ; NONE ;
+-1000000000 ; 2 ; 29 ; NONE ;
+-999999996 ; 2 ; 29 ; DAY ; -365243218008
+999999996 ; 2 ; 29 ; DAY ; 365241779070
+999999999 ; 2 ; 29 ; NONE ;
+999999999 ; 12 ; 31 ; DAY ; 365241780471
+999999999 ; 12 ; 32 ; NONE ;
+1000000000 ; 1 ; 1 ; NONE ;
+1000000000 ; 2 ; 29 ; NONE ;
+
+2023 ; 1 ; 31 ; DAY ; 19388
+2023 ; 1 ; 32 ; NONE ;
+2023 ; 2 ; 28 ; DAY ; 19416
+2023 ; 3 ; 31 ; DAY ; 19447
+2023 ; 3 ; 32 ; NONE ;
+2023 ; 4 ; 30 ; DAY ; 19477
+2023 ; 4 ; 31 ; NONE ;
+2023 ; 5 ; 31 ; DAY ; 19508
+2023 ; 5 ; 32 ; NONE ;
+2023 ; 6 ; 30 ; DAY ; 19538
+2023 ; 6 ; 31 ; NONE ;
+2023 ; 7 ; 31 ; DAY ; 19569
+2023 ; 7 ; 32 ; NONE ;
+2023 ; 8 ; 31 ; DAY ; 19600
+2023 ; 8 ; 32 ; NONE ;
+2023 ; 9 ; 30 ; DAY ; 19630
+2023 ; 9 ; 31 ; NONE ;
+2023 ; 10 ; 31 ; DAY ; 19661
+2023 ; 10 ; 32 ; NONE ;
+2023 ; 11 ; 30 ; DAY ; 19691
+2023 ; 11 ; 31 ; NONE ;
+2023 ; 12 ; 31 ; DAY ; 19722
+2023 ; 12 ; 32 ; NONE ;

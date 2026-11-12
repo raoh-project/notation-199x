@@ -185,6 +185,119 @@ fn temporal_readers_admit_what_the_check_admits_on_every_line_of_the_suite() {
     });
 }
 
+#[test]
+fn gregorian_days_answer_every_line_of_the_suite() {
+    each_line("suite/gregorian.txt", 5, |line| {
+        let year = line.signed_number(0);
+        let month = line.signed_number(1);
+        let day = line.signed_number(2);
+        let is_a_day = line.one_of(3, &["DAY", "NONE"]) == "DAY";
+        let said = format!("{year}-{month}-{day}");
+        let (month, day) = match (u32::try_from(month), u32::try_from(day)) {
+            (Ok(month), Ok(day)) => (month, day),
+            _ => {
+                // A month or a day below nought is no day, whatever the year.
+                line.empty(4);
+                return is_a_day.then(|| format!("{said} is no day, and the line says it is"));
+            }
+        };
+        let length = length_of_month(year, month);
+        if is_a_day != length.is_some_and(|length| (1..=length).contains(&day)) {
+            return Some(format!(
+                "{said} is a day of a month of {length:?} days: {}",
+                !is_a_day
+            ));
+        }
+        let asked = epoch_day(year, month, day);
+        if !is_a_day {
+            line.empty(4);
+            return asked.map(|count| format!("{said} is the count {count}"));
+        }
+        let count = line.signed_number(4);
+        if asked != Some(count) {
+            return Some(format!("{said} is {asked:?}, not {count}"));
+        }
+        let back = day_of(count);
+        (back != Some(GregorianDay { year, month, day }))
+            .then(|| format!("the count {count} is {back:?}, not {said}"))
+    });
+}
+
+#[test]
+fn the_counts_at_the_ends_are_the_ends_of_the_years_a_date_holds() {
+    assert_eq!(epoch_day(YEAR_MIN, 1, 1), Some(EPOCH_DAY_MIN));
+    assert_eq!(epoch_day(YEAR_MAX, 12, 31), Some(EPOCH_DAY_MAX));
+    assert_eq!(
+        day_of(EPOCH_DAY_MIN),
+        Some(GregorianDay {
+            year: YEAR_MIN,
+            month: 1,
+            day: 1
+        })
+    );
+    assert_eq!(
+        day_of(EPOCH_DAY_MAX),
+        Some(GregorianDay {
+            year: YEAR_MAX,
+            month: 12,
+            day: 31
+        })
+    );
+    for beyond in [EPOCH_DAY_MIN - 1, EPOCH_DAY_MAX + 1, i64::MIN, i64::MAX] {
+        assert_eq!(day_of(beyond), None, "{beyond}");
+    }
+    for year in [YEAR_MIN - 1, YEAR_MAX + 1, i64::MIN, i64::MAX] {
+        assert_eq!(length_of_month(year, 1), None, "{year}");
+    }
+    assert_eq!(length_of_month(2024, 0), None);
+    assert_eq!(length_of_month(2024, 13), None);
+}
+
+/// Every count of eight hundred thousand days either side of the epoch is a day, the day after the
+/// one before it, and counts back to itself; and counts drawn from the whole range do the same.
+#[test]
+fn every_count_is_the_day_after_the_one_before_it() {
+    let mut previous = day_of(-800_000).expect("a day");
+    for count in -799_999..=800_000 {
+        let day = day_of(count).expect("a day");
+        let expected = if day.day > 1 {
+            GregorianDay {
+                day: previous.day + 1,
+                ..previous
+            }
+        } else if day.month > 1 {
+            GregorianDay {
+                month: previous.month + 1,
+                day: 1,
+                ..previous
+            }
+        } else {
+            GregorianDay {
+                year: previous.year + 1,
+                month: 1,
+                day: 1,
+            }
+        };
+        assert_eq!(day, expected, "{count}");
+        assert_eq!(epoch_day(day.year, day.month, day.day), Some(count));
+        previous = day;
+    }
+    let mut state: u64 = 1970;
+    for _ in 0..200_000 {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        let span = (EPOCH_DAY_MAX - EPOCH_DAY_MIN + 1) as u64;
+        let count = EPOCH_DAY_MIN + ((state >> 11) % span) as i64;
+        let day = day_of(count).expect("a day");
+        assert_eq!(
+            epoch_day(day.year, day.month, day.day),
+            Some(count),
+            "{count}"
+        );
+    }
+}
+
 fn limit_named(name: &str) -> PatternLimit {
     match name {
         "REPETITION_COUNT" => PatternLimit::RepetitionCount,

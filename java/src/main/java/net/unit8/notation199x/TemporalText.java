@@ -98,8 +98,6 @@ public final class TemporalText {
     private static final long SECONDS_PER_DAY = 86_400L;
     /** The furthest an offset reaches from UTC, eighteen hours. */
     private static final int MAX_OFFSET_SECONDS = 18 * 3600;
-    /** Days from 0000-03-01 to 1970-01-01, which the day count below is taken from. */
-    private static final long DAYS_TO_EPOCH = 719_468L;
 
     private TemporalText() {}
 
@@ -158,15 +156,10 @@ public final class TemporalText {
 
     private static int lengthOfMonth(long year, int month) {
         return switch (month) {
-            case 2 -> isLeap(year) ? 29 : 28;
+            case 2 -> Gregorian.isLeapYear(year) ? 29 : 28;
             case 4, 6, 9, 11 -> 30;
             default -> 31;
         };
-    }
-
-    /** Whether {@code year} of the proleptic Gregorian calendar has a 29 February. */
-    private static boolean isLeap(long year) {
-        return (year & 3) == 0 && (year % 100 != 0 || year % 400 == 0);
     }
 
     /** Whether the time of day is one a clock shows. Hour 24 is not, whatever follows. */
@@ -197,21 +190,10 @@ public final class TemporalText {
         if (!timeExists || !dayExists(m, year)) {
             return false;
         }
-        long epochSecond = epochDay(year, Integer.parseInt(m.group("month")),
+        long epochSecond = Gregorian.countOf(year, Integer.parseInt(m.group("month")),
                 Integer.parseInt(m.group("day"))) * SECONDS_PER_DAY
                 + hour * 3600L + minute * 60L + second - offsetSeconds(m);
         return epochSecond >= INSTANT_MIN && epochSecond <= INSTANT_MAX;
-    }
-
-    /** Days from 1970-01-01 to a day of the proleptic Gregorian calendar, which the caller has
-     *  established exists. The year runs from March, so the leap day is the last of it. */
-    private static long epochDay(long year, int month, int day) {
-        long shifted = month <= 2 ? year - 1 : year;
-        long era = Math.floorDiv(shifted, 400L);
-        long yearOfEra = shifted - era * 400L;
-        long dayOfYear = (153L * (month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1;
-        long dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear;
-        return era * 146_097L + dayOfEra - DAYS_TO_EPOCH;
     }
 
     /** Whether the offset is one that reaches no further than eighteen hours, with minutes and

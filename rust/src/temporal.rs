@@ -1,3 +1,5 @@
+use crate::gregorian::{count_of, is_leap_year};
+
 /// The temporals that have a text form.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TemporalKind {
@@ -36,8 +38,6 @@ pub const INSTANT_MAX: i64 = 31_556_889_864_403_199;
 const SECONDS_PER_DAY: i64 = 86_400;
 /// The furthest an offset reaches from UTC, eighteen hours.
 const MAX_OFFSET_SECONDS: i64 = 18 * 3600;
-/// Days from 0000-03-01 to 1970-01-01, which the day count below is taken from.
-const DAYS_TO_EPOCH: i64 = 719_468;
 
 /// Whether `text` is a `kind`, and why not where it is not.
 ///
@@ -269,7 +269,7 @@ impl Fields {
         if !time_exists || !self.day_exists() {
             return None;
         }
-        let epoch_second = epoch_day(self.year, self.month, self.day) * SECONDS_PER_DAY
+        let epoch_second = count_of(self.year, self.month, self.day) * SECONDS_PER_DAY
             + self.hour * 3600
             + self.minute * 60
             + second
@@ -314,27 +314,11 @@ impl Fields {
 
 fn length_of_month(year: i64, month: i64) -> i64 {
     match month {
-        2 if is_leap(year) => 29,
+        2 if is_leap_year(year) => 29,
         2 => 28,
         4 | 6 | 9 | 11 => 30,
         _ => 31,
     }
-}
-
-/// Whether `year` of the proleptic Gregorian calendar has a 29 February.
-fn is_leap(year: i64) -> bool {
-    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
-}
-
-/// Days from 1970-01-01 to a day of the proleptic Gregorian calendar that exists. The year runs
-/// from March, so the leap day is the last of it.
-fn epoch_day(year: i64, month: i64, day: i64) -> i64 {
-    let shifted = if month <= 2 { year - 1 } else { year };
-    let era = shifted.div_euclid(400);
-    let year_of_era = shifted - era * 400;
-    let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    era * 146_097 + day_of_era - DAYS_TO_EPOCH
 }
 
 /// Reads a form from the start of `text`, one byte at a time. Every form is ASCII, so a byte that is
