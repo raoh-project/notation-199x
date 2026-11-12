@@ -94,6 +94,14 @@ final class JavaEmitter {
         holder(out, "Upper", "The tables of uppercasing, which a program that uppercases nothing never loads.",
                 upper);
 
+        StringBuilder simple = new StringBuilder();
+        mappingField(simple, "LOWER", "Unicode " + version + "'s simple lowercase mapping, {@code UnicodeData.txt}'s"
+                + " field 13", casing.simpleLower(), "every other code point maps to itself");
+        mappingField(simple, "UPPER", "Unicode " + version + "'s simple uppercase mapping, {@code UnicodeData.txt}'s"
+                + " field 12", casing.simpleUpper(), "every other code point maps to itself");
+        holder(out, "Simple", "The simple mappings, one code point to one, which no conversion reads and a program"
+                + " that asks for none never loads.", simple);
+
         out.append("}\n");
         return out.toString();
     }
@@ -297,6 +305,11 @@ final class JavaEmitter {
                 .append(" decomposition is written into. */\n");
         out.append("    static final int LONGEST_DECOMPOSITION = ")
                 .append(model.normalizationDerived().longestDecomposition()).append(";\n");
+
+        out.append("\n    /** The most code points one code point decomposes into by the canonical mapping alone,")
+                .append(" followed as far as it goes, or by Hangul's arithmetic. */\n");
+        out.append("    static final int LONGEST_CANONICAL_DECOMPOSITION = ")
+                .append(model.normalizationDerived().longestCanonicalDecomposition()).append(";\n");
 
         out.append("\n    /** The most marks one starter composes with, one after another, in a composing form: of")
                 .append(" the marks held after a starter, no more than this many are gone from the answer. */\n");

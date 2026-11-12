@@ -1,7 +1,10 @@
 package net.unit8.notation199x;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.stream.IntStream;
+import net.unit8.notation199x.pattern.CodePoints;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -498,6 +501,100 @@ public final class Normalization {
      */
     public static boolean isStableStarter(Form form, int cp) {
         return isStable(form.stableBit, cp);
+    }
+
+    /**
+     * The scalar values that are stable starters of {@code form}, as ranges: the code points
+     * {@link #isStableStarter} answers true for, but the surrogates, which no text holds.
+     *
+     * @param form the normalization form
+     * @return the stable starters of the form
+     */
+    public static CodePoints stableStarters(Form form) {
+        return StableStarters.BY_FORM[form.ordinal()];
+    }
+
+    /** {@link #stableStarters} of each form, by the form's ordinal, read off
+     *  {@link NormalizationTables#STABLE_PAGES} once, when the first is asked. */
+    private static final class StableStarters {
+
+        static final CodePoints[] BY_FORM = read();
+
+        private static CodePoints[] read() {
+            Form[] forms = Form.values();
+            List<List<CodePoints.Range>> ranges = new ArrayList<>();
+            int[] from = new int[forms.length];
+            for (int i = 0; i < forms.length; i++) {
+                ranges.add(new ArrayList<>());
+                from[i] = -1;
+            }
+            for (int cp = 0; cp <= CodePoints.LAST + 1; cp++) {
+                boolean scalar = cp <= CodePoints.LAST && !CodePoints.isSurrogate(cp);
+                for (int i = 0; i < forms.length; i++) {
+                    boolean stable = scalar && isStable(forms[i].stableBit, cp);
+                    if (stable && from[i] < 0) {
+                        from[i] = cp;
+                    } else if (!stable && from[i] >= 0) {
+                        ranges.get(i).add(new CodePoints.Range(from[i], cp - 1));
+                        from[i] = -1;
+                    }
+                }
+            }
+            CodePoints[] byForm = new CodePoints[forms.length];
+            for (int i = 0; i < forms.length; i++) {
+                byForm[i] = new CodePoints(ranges.get(i));
+            }
+            return byForm;
+        }
+    }
+
+    /**
+     * The most code points one code point comes to in {@code form}'s decomposition, its mapping
+     * followed as far as it goes: by the canonical mapping alone in NFC and NFD, and by the
+     * canonical and the compatibility mappings in NFKC and NFKD, with Hangul's arithmetic in each.
+     *
+     * <p>So no text {@code x} comes to more than this many times as many code points as it holds in
+     * {@code form}: {@code |N(x)| <= longestDecomposition(form) * |x|}. The decomposition of a text
+     * is the decompositions of its code points one after another, put in order, and a composition
+     * holds no more code points than what it composes.
+     *
+     * @param form the normalization form
+     * @return the most code points one code point decomposes into in the form
+     */
+    public static int longestDecomposition(Form form) {
+        return form.compatibility ? NormalizationTables.LONGEST_DECOMPOSITION
+                : NormalizationTables.LONGEST_CANONICAL_DECOMPOSITION;
+    }
+
+    /**
+     * A bound on how many code points normalizing two texts joined comes to past the two, where
+     * each is already in {@code form}: for such texts {@code a} and {@code b},
+     * {@code |N(a + b)| <= |a| + |b| + seamGrowthBound(form)}.
+     *
+     * <p>A bound shown to hold, and not the most any two texts are shown to add: a caller may
+     * hold texts to it, and may not take a pair that adds this many to exist.
+     *
+     * <p>In NFD and NFKD it is 0, which is the least bound there is. Neither text holds a code point that decomposes, so normalizing
+     * the two joined puts the marks on either side of where they meet in canonical order, which
+     * moves code points and adds none.
+     *
+     * <p>In NFC and NFKC it is the most marks one starter composes with, one after another, which
+     * the generator works out from the compositions. Of {@code a}, only the last starter and the
+     * marks after it can come out otherwise: canonical order moves no mark past a starter, and a
+     * starter of {@code b} composes only with a starter right before it. In {@code a} that starter
+     * composed with no more marks than this, and those marks are all it can give back, where the
+     * marks {@code b} begins with are put in order among them and block one. Each mark {@code b}
+     * begins with comes to one code point, since a mark that decomposes is in no text in a
+     * composing form, and every other composition makes the answer shorter. That is no proof that
+     * the bound is the least one. A pair is known to add one: U+01D6 followed by U+0323, each its
+     * own NFC, comes out one code point longer than the two, the U+0323 put before the marks U+01D6
+     * took in and composing with the starter in their place.
+     *
+     * @param form the normalization form
+     * @return a bound on the code points joining two texts in the form adds once normalized
+     */
+    public static int seamGrowthBound(Form form) {
+        return form.composes ? NormalizationTables.MOST_MARKS_COMPOSED : 0;
     }
 
     /** Whether {@code cp} is a stable starter of the form whose bit of
