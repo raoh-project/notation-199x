@@ -38,6 +38,8 @@ import java.util.TreeSet;
  * @param normalizationDerived what normalization works out from {@code decomposition}, worked out
  *                  here once so that an implementation whose run time would pay for working it
  *                  out again can hold it instead
+ * @param casingDerived how much longer than the text the case conversions' answers can be, worked out
+ *                  from {@code casing} and {@code decomposition}
  * @param byCodePoint what the case conversion and normalization ask of each code point as they read
  *                  text, as tables a code point indexes
  * @param whiteSpace {@code White_Space}
@@ -45,8 +47,8 @@ import java.util.TreeSet;
  *                  letters and the decimal digits, General_Category {@code L} and {@code Nd}
  */
 record UcdModel(String version, Map<String, String> sha256, Casing casing, Decomposition decomposition,
-                NormalizationDerived normalizationDerived, ByCodePoint byCodePoint, RangeSet whiteSpace,
-                RangeSet patternEscapeAlphabet) {
+                NormalizationDerived normalizationDerived, CasingDerived casingDerived, ByCodePoint byCodePoint,
+                RangeSet whiteSpace, RangeSet patternEscapeAlphabet) {
 
     /** The version every input is checked to be. */
     static final String VERSION = "18.0.0";
@@ -134,6 +136,29 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
      *                     bound before it holds more than the bound and this many marks
      */
     record NormalizationDerived(CodePointMapping compositions, int longestDecomposition, int mostMarksComposed) {}
+
+    /**
+     * How much longer than the text a case conversion's answer can be, for each of the two
+     * conversions.
+     *
+     * @param lower what {@link Casing#lower} and {@link Casing#finalSigma} answer
+     * @param upper what {@link Casing#upper} answers
+     */
+    record CasingDerived(Growth lower, Growth upper) {}
+
+    /**
+     * The most code points one code point of a text comes to in a case conversion's answer, over
+     * every code point there is, under every mapping the conversion may take for it.
+     *
+     * @param mapped     in the answer as the mapping writes it
+     * @param decomposed in the answer canonically decomposed: each code point of it by the canonical
+     *                   mapping followed as far as it goes, or by Hangul's arithmetic. The canonical
+     *                   decomposition of a text is as long as these added up over its code points,
+     *                   and a canonical composition holds no more code points than what it composes,
+     *                   so this many times as many code points as the text holds bounds the answer
+     *                   in each canonical form
+     */
+    record Growth(int mapped, int decomposed) {}
 
     // Hangul's jamo that compose with a starter before them, by arithmetic rather than by a table
     // (UAX #15, the Hangul section): the vowels and the trailing consonants. The trailing
@@ -237,7 +262,8 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
         NormalizationDerived normalizationDerived = normalizationDerived(decomposition);
         Casing casing = casing(unicodeData, specialCasing, derivedCoreProperties);
         return new UcdModel(VERSION, Collections.unmodifiableMap(in.sha256), casing,
-                decomposition, normalizationDerived, byCodePoint(casing, decomposition, normalizationDerived),
+                decomposition, normalizationDerived, casingDerived(casing, decomposition),
+                byCodePoint(casing, decomposition, normalizationDerived),
                 ranges(propList, Set.of("White_Space")),
                 ranges(derivedGeneralCategory, Set.of("Lu", "Ll", "Lt", "Lm", "Lo", "Nd")));
     }
@@ -626,6 +652,68 @@ record UcdModel(String version, Map<String, String> sha256, Casing casing, Decom
         on.remove(starter);
         longest.put(starter, most);
         return most;
+    }
+
+    /** How much longer than the text each case conversion's answer can be: the lowercase one by
+     *  its mapping and by the one it takes at the end of a cased run, the uppercase one by its own.
+     *  Every code point is asked, since one a mapping does not name maps to itself and may still
+     *  decompose. */
+    private static CasingDerived casingDerived(Casing casing, Decomposition decomposition) {
+        return new CasingDerived(
+                growth(List.of(casing.lower(), casing.finalSigma()), decomposition),
+                growth(List.of(casing.upper()), decomposition));
+    }
+
+    /** The most code points one code point comes to as a conversion answers it, as written and
+     *  canonically decomposed: by the first of {@code mappings}, or as itself where that does not
+     *  name it, and by each other that names it, which replaces the first in a context. */
+    private static Growth growth(List<CodePointMapping> mappings, Decomposition decomposition) {
+        int mapped = 0;
+        int decomposed = 0;
+        for (int cp = 0; cp <= 0x10FFFF; cp++) {
+            if (cp >= 0xD800 && cp <= 0xDFFF) {
+                continue;
+            }
+            List<int[]> answers = new ArrayList<>();
+            answers.add(mappings.getFirst().entries().getOrDefault(cp, new int[] {cp}));
+            for (CodePointMapping mapping : mappings.subList(1, mappings.size())) {
+                int[] named = mapping.entries().get(cp);
+                if (named != null) {
+                    answers.add(named);
+                }
+            }
+            for (int[] answer : answers) {
+                mapped = Math.max(mapped, answer.length);
+                int length = 0;
+                for (int part : answer) {
+                    length += canonicallyDecomposedLength(decomposition, part);
+                }
+                decomposed = Math.max(decomposed, length);
+            }
+        }
+        return new Growth(mapped, decomposed);
+    }
+
+    // Hangul's precomposed syllables (UAX #15, the Hangul section): each is a leading consonant and
+    // a vowel, and a trailing consonant where its index is not a multiple of T_COUNT.
+    private static final int S_BASE = 0xAC00;
+    private static final int S_COUNT = 11172;
+
+    /** How many code points {@code cp} canonically decomposes into, followed as far as it goes, or by
+     *  Hangul's arithmetic: one where it does not decompose. */
+    private static int canonicallyDecomposedLength(Decomposition decomposition, int cp) {
+        if (cp >= S_BASE && cp < S_BASE + S_COUNT) {
+            return (cp - S_BASE) % T_COUNT == 0 ? 2 : 3;
+        }
+        int[] mapped = decomposition.canonical().entries().get(cp);
+        if (mapped == null) {
+            return 1;
+        }
+        int length = 0;
+        for (int part : mapped) {
+            length += canonicallyDecomposedLength(decomposition, part);
+        }
+        return length;
     }
 
     /** {@code cp}'s decomposition by the canonical and the compatibility mappings, followed as far as
