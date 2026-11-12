@@ -118,6 +118,33 @@ public final class Suite {
             return Long.parseLong(field);
         }
 
+        /** The field at {@code index} as a decimal with a minus sign where it is below nought. */
+        public long signedNumber(int index) {
+            String field = take(index);
+            if (!field.matches("0|-?[1-9][0-9]{0,17}")) {
+                throw wrong(index, "a signed decimal");
+            }
+            return Long.parseLong(field);
+        }
+
+        /** The field at {@code index} as a signed decimal that an {@code int} holds. */
+        public int signedInt(int index) {
+            long value = signedNumber(index);
+            if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+                throw wrong(index, "a signed decimal an int holds");
+            }
+            return (int) value;
+        }
+
+        /** The field at {@code index} as a signed decimal, or null where it is empty. */
+        public @Nullable Long signedNumberOrNothing(int index) {
+            if (fields.get(index).isEmpty()) {
+                empty(index);
+                return null;
+            }
+            return signedNumber(index);
+        }
+
         /** The field at {@code index} as an unsigned decimal, or null where it is empty. */
         public @Nullable Long numberOrNothing(int index) {
             if (fields.get(index).isEmpty()) {

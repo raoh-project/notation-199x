@@ -46,6 +46,7 @@ kind of temporal text, has lines of its own.
 | `scalar-length.txt` | text ; length | Length in scalar values |
 | `scalar-order.txt` | a ; b ; order | Order by scalar values |
 | `temporal.txt` | kind ; text ; outcome | Dates, times, date-times, date-times with an offset, and instants: what is admitted and what is refused |
+| `gregorian.txt` | year ; month ; day ; outcome ; epoch day | The days of the proleptic Gregorian calendar, and the count of each from 1970-01-01 |
 | `pattern-read.txt` | pattern ; outcome ; limit | What is read as a pattern, what is refused, and what is past a limit |
 | `pattern-match.txt` | pattern ; subject ; accepted | What a pattern accepts |
 | `pattern-states.txt` | pattern ; states | The states a pattern is counted as, against the limit |
@@ -68,8 +69,10 @@ Every file is UTF-8, and a line of vectors is ASCII.
 - A text is its Unicode scalar values, each four to six upper case hex digits, separated by one or
   more spaces. The empty text is an empty field. A surrogate is no scalar value, so no text here holds
   one.
-- A number is unsigned decimal, and each file says what it counts: the length of a text and a bound
-  on a conversion or a normalization count scalar values, and a pattern's states count states.
+- A number is unsigned decimal, unless a file says a field is a signed decimal, which is the same
+  with a `-` before a number that is below nought. Each file says what it counts: the length of a
+  text and a bound on a conversion or a normalization count scalar values, and a pattern's states
+  count states.
 - Anything else, a direction, an outcome or a limit, is an upper case identifier the file's comment
   lists, and a yes or no is `true` or `false`.
 

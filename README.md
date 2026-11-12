@@ -46,9 +46,9 @@ the bound, and answers nothing where it is longer. The bound is on the work as w
 answer: what one holds and how much of the text it reads turn on the bound and not on the length of
 the text, so it reads no further once what it has read shows the answer to be longer than the bound.
 Each of the other entry points described below is in an implementation whose callers need that
-one, apart from the others: the operations on the machine a pattern means, writing a machine as an
-image, running a match from an image, and running a match, a bounded normalization or a bounded case
-conversion with a checkpoint. Where an implementation has one, it holds to the contract every other
+one, apart from the others: the days of the calendar, the operations on the machine a pattern
+means, writing a machine as an image, running a match from an image, and running a match, a bounded
+normalization or a bounded case conversion with a checkpoint. Where an implementation has one, it holds to the contract every other
 implementation that has it holds to.
 
 ## What does not belong here
@@ -82,6 +82,17 @@ implementation writes is read by every implementation that reads its format, and
 strings there. The formats are defined apart from any implementation's code: P1 in
 [`image/P1.md`](image/P1.md), and P2, which writes only deterministic machines, in
 [`image/P2.md`](image/P2.md).
+
+The days of the proleptic Gregorian calendar are an entry point apart from those rules, in the
+implementations whose callers count days themselves, as a run time with no date library does. It
+answers which count a year, a month and a day is, counted from 1970-01-01 and negative before it,
+which year, month and day a count is, and how many days a month of a year has. Its domain is that
+of a date: the years from -999999999 to 999999999, and the counts of the days of those years,
+-365243219162 to 365241780471. A question about a year, a month, a day or a count outside it is
+answered that there is none, and not with a day that is another. The year is astronomical, so the
+year before 1 is 0, and is a leap year. A text is a date exactly where its year, month and day are
+a day these answer. The day an answer holds is one there is: no
+value of that type can be made of a year, a month and a day that name none.
 
 What a caller asks about the patterns it holds beyond that, and how much it is willing to spend on
 an answer, is the caller's. The operations on machines take their limits as an argument. Souther's

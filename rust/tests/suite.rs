@@ -185,6 +185,155 @@ fn temporal_readers_admit_what_the_check_admits_on_every_line_of_the_suite() {
     });
 }
 
+#[test]
+fn gregorian_days_answer_every_line_of_the_suite() {
+    each_line("suite/gregorian.txt", 5, |line| {
+        let year = line.signed_number(0);
+        let month = line.signed_number(1);
+        let day = line.signed_number(2);
+        let is_a_day = line.one_of(3, &["DAY", "NONE"]) == "DAY";
+        let said = format!("{year}-{month}-{day}");
+        let (month, day) = match (u32::try_from(month), u32::try_from(day)) {
+            (Ok(month), Ok(day)) => (month, day),
+            _ => {
+                // A month or a day below nought is no day, whatever the year.
+                line.empty(4);
+                return is_a_day.then(|| format!("{said} is no day, and the line says it is"));
+            }
+        };
+        let length = length_of_month(year, month);
+        if is_a_day != length.is_some_and(|length| (1..=length).contains(&day)) {
+            return Some(format!(
+                "{said} is a day of a month of {length:?} days: {}",
+                !is_a_day
+            ));
+        }
+        let asked = epoch_day(year, month, day);
+        if !is_a_day {
+            line.empty(4);
+            return asked.map(|count| format!("{said} is the count {count}"));
+        }
+        let count = line.signed_number(4);
+        if asked != Some(count) {
+            return Some(format!("{said} is {asked:?}, not {count}"));
+        }
+        let back = day_of(count);
+        (back != GregorianDay::new(year, month, day))
+            .then(|| format!("the count {count} is {back:?}, not {said}"))
+    });
+}
+
+/// A text is a date exactly where its year, month and day are a day `epoch_day` answers.
+#[test]
+fn a_date_text_is_admitted_where_the_line_says_its_day_exists() {
+    // A month or a day below nought, or of three digits, cannot be written in a date's text, so the
+    // lines that name one are not asked here; the rest are, and must reach both answers.
+    let mut asked = [0usize; 2];
+    each_line("suite/gregorian.txt", 5, |line| {
+        let year = line.signed_number(0);
+        let month = line.signed_number(1);
+        let day = line.signed_number(2);
+        let is_a_day = line.one_of(3, &["DAY", "NONE"]) == "DAY";
+        if is_a_day {
+            line.signed_number(4);
+        } else {
+            line.empty(4);
+        }
+        if !(0..=99).contains(&month) || !(0..=99).contains(&day) {
+            return None;
+        }
+        let year_written = match year {
+            0..=9999 => format!("{year:04}"),
+            -9999..=-1 => format!("-{:04}", -year),
+            _ if year > 0 => format!("+{year}"),
+            _ => year.to_string(),
+        };
+        let text = format!("{year_written}-{month:02}-{day:02}");
+        let admitted = check_temporal(TemporalKind::Date, &text).is_ok();
+        asked[usize::from(!is_a_day)] += 1;
+        (admitted != is_a_day).then(|| format!("{text} is admitted: {admitted}"))
+    });
+    assert!(
+        asked[0] > 30 && asked[1] > 15,
+        "the lines asked reach both answers: {} and {}",
+        asked[0],
+        asked[1]
+    );
+}
+
+#[test]
+fn a_day_there_is_not_cannot_be_made() {
+    assert_eq!(
+        GregorianDay::new(2024, 2, 29).map(|day| day.year()),
+        Some(2024)
+    );
+    for (year, month, day) in [
+        (2024, 13, 40),
+        (2023, 2, 29),
+        (2024, 0, 1),
+        (2024, 1, 0),
+        (YEAR_MAX + 1, 1, 1),
+        (YEAR_MIN - 1, 12, 31),
+    ] {
+        assert_eq!(
+            GregorianDay::new(year, month, day),
+            None,
+            "{year}-{month}-{day}"
+        );
+    }
+}
+
+#[test]
+fn the_counts_at_the_ends_are_the_ends_of_the_years_a_date_holds() {
+    assert_eq!(epoch_day(YEAR_MIN, 1, 1), Some(EPOCH_DAY_MIN));
+    assert_eq!(epoch_day(YEAR_MAX, 12, 31), Some(EPOCH_DAY_MAX));
+    assert_eq!(day_of(EPOCH_DAY_MIN), GregorianDay::new(YEAR_MIN, 1, 1));
+    assert_eq!(day_of(EPOCH_DAY_MAX), GregorianDay::new(YEAR_MAX, 12, 31));
+    for beyond in [EPOCH_DAY_MIN - 1, EPOCH_DAY_MAX + 1, i64::MIN, i64::MAX] {
+        assert_eq!(day_of(beyond), None, "{beyond}");
+    }
+    for year in [YEAR_MIN - 1, YEAR_MAX + 1, i64::MIN, i64::MAX] {
+        assert_eq!(length_of_month(year, 1), None, "{year}");
+    }
+    assert_eq!(length_of_month(2024, 0), None);
+    assert_eq!(length_of_month(2024, 13), None);
+}
+
+/// Every count of eight hundred thousand days either side of the epoch is a day, the day after the
+/// one before it, and counts back to itself; and counts drawn from the whole range do the same.
+#[test]
+fn every_count_is_the_day_after_the_one_before_it() {
+    let mut previous = day_of(-800_000).expect("a day");
+    for count in -799_999..=800_000 {
+        let day = day_of(count).expect("a day");
+        let expected = if day.day() > 1 {
+            GregorianDay::new(previous.year(), previous.month(), previous.day() + 1)
+        } else if day.month() > 1 {
+            GregorianDay::new(previous.year(), previous.month() + 1, 1)
+        } else {
+            GregorianDay::new(previous.year() + 1, 1, 1)
+        };
+        let expected = expected.expect("the day after one there is");
+        assert_eq!(day, expected, "{count}");
+        assert_eq!(epoch_day(day.year(), day.month(), day.day()), Some(count));
+        previous = day;
+    }
+    let mut state: u64 = 1970;
+    for _ in 0..200_000 {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        let span = (EPOCH_DAY_MAX - EPOCH_DAY_MIN + 1) as u64;
+        let count = EPOCH_DAY_MIN + ((state >> 11) % span) as i64;
+        let day = day_of(count).expect("a day");
+        assert_eq!(
+            epoch_day(day.year(), day.month(), day.day()),
+            Some(count),
+            "{count}"
+        );
+    }
+}
+
 fn limit_named(name: &str) -> PatternLimit {
     match name {
         "REPETITION_COUNT" => PatternLimit::RepetitionCount,

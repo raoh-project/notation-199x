@@ -127,6 +127,14 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.2</version>
+                <configuration>
+                    <!--
+                        The tests run in a locale whose digits are not ASCII. A rule here reads
+                        ASCII, so a test that writes a number with the default locale writes text
+                        no rule reads, and it fails there as it would on a machine set that way.
+                    -->
+                    <argLine>-Duser.language=ar -Duser.country=EG</argLine>
+                </configuration>
             </plugin>
             <!--
                 The Javadoc is held to doclint's every group, the missing tags included, and a
