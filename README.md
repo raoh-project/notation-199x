@@ -86,12 +86,12 @@ strings there. The formats are defined apart from any implementation's code: P1 
 The days of the proleptic Gregorian calendar are an entry point apart from those rules, in the
 implementations whose callers count days themselves, as a run time with no date library does. It
 answers which count a year, a month and a day is, counted from 1970-01-01 and negative before it,
-which year, month and day a count is, how many days a month of a year has, and whether a year is a
-leap year. Its domain is that of a date: the years from -999999999 to 999999999, and the counts of
-the days of those years, -365243219162 to 365241780471. A question about a year, a month, a day or
-a count outside it is answered that there is none, and not with a day that is another. The year is
-astronomical, so the year before 1 is 0 and is a leap year. Where an implementation reads a date,
-it reads it with these: the days a date's text names are the days these answer.
+which year, month and day a count is, and how many days a month of a year has. Its domain is that
+of a date: the years from -999999999 to 999999999, and the counts of the days of those years,
+-365243219162 to 365241780471. A question about a year, a month, a day or a count outside it is
+answered that there is none, and not with a day that is another. The year is astronomical, so the
+year before 1 is 0, and is a leap year. A text is a date exactly where its year, month and day are
+a day these answer.
 
 What a caller asks about the patterns it holds beyond that, and how much it is willing to spend on
 an answer, is the caller's. The operations on machines take their limits as an argument. Souther's

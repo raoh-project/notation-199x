@@ -151,15 +151,8 @@ public final class TemporalText {
     private static boolean dayExists(Matcher m, long year) {
         int month = Integer.parseInt(m.group("month"));
         int day = Integer.parseInt(m.group("day"));
-        return month >= 1 && month <= 12 && day >= 1 && day <= lengthOfMonth(year, month);
-    }
-
-    private static int lengthOfMonth(long year, int month) {
-        return switch (month) {
-            case 2 -> Gregorian.isLeapYear(year) ? 29 : 28;
-            case 4, 6, 9, 11 -> 30;
-            default -> 31;
-        };
+        return month >= 1 && month <= 12 && day >= 1
+                && day <= Gregorian.monthLengthOf(year, month);
     }
 
     /** Whether the time of day is one a clock shows. Hour 24 is not, whatever follows. */

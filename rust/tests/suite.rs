@@ -223,6 +223,34 @@ fn gregorian_days_answer_every_line_of_the_suite() {
     });
 }
 
+/// A text is a date exactly where its year, month and day are a day `epoch_day` answers.
+#[test]
+fn a_date_text_is_admitted_where_the_line_says_its_day_exists() {
+    each_line("suite/gregorian.txt", 5, |line| {
+        let year = line.signed_number(0);
+        let month = line.signed_number(1);
+        let day = line.signed_number(2);
+        let is_a_day = line.one_of(3, &["DAY", "NONE"]) == "DAY";
+        if is_a_day {
+            line.signed_number(4);
+        } else {
+            line.empty(4);
+        }
+        if !(0..=99).contains(&month) || !(0..=99).contains(&day) {
+            return None;
+        }
+        let year_written = match year {
+            0..=9999 => format!("{year:04}"),
+            -9999..=-1 => format!("-{:04}", -year),
+            _ if year > 0 => format!("+{year}"),
+            _ => year.to_string(),
+        };
+        let text = format!("{year_written}-{month:02}-{day:02}");
+        let admitted = check_temporal(TemporalKind::Date, &text).is_ok();
+        (admitted != is_a_day).then(|| format!("{text} is admitted: {admitted}"))
+    });
+}
+
 #[test]
 fn the_counts_at_the_ends_are_the_ends_of_the_years_a_date_holds() {
     assert_eq!(epoch_day(YEAR_MIN, 1, 1), Some(EPOCH_DAY_MIN));

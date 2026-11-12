@@ -1,4 +1,4 @@
-use crate::gregorian::{count_of, is_leap_year};
+use crate::gregorian::{count_of, month_length_of};
 
 /// The temporals that have a text form.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -242,7 +242,7 @@ impl Fields {
     fn day_exists(&self) -> bool {
         (1..=12).contains(&self.month)
             && self.day >= 1
-            && self.day <= length_of_month(self.year, self.month)
+            && self.day <= i64::from(month_length_of(self.year, self.month as u32))
     }
 
     /// Whether the time of day is one a clock shows. Hour 24 is not, whatever follows.
@@ -309,15 +309,6 @@ impl Fields {
             date: self.date(),
             time: self.time(),
         }
-    }
-}
-
-fn length_of_month(year: i64, month: i64) -> i64 {
-    match month {
-        2 if is_leap_year(year) => 29,
-        2 => 28,
-        4 | 6 | 9 | 11 => 30,
-        _ => 31,
     }
 }
 

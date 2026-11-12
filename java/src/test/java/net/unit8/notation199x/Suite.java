@@ -127,6 +127,15 @@ public final class Suite {
             return Long.parseLong(field);
         }
 
+        /** The field at {@code index} as a signed decimal, or null where it is empty. */
+        public @Nullable Long signedNumberOrNothing(int index) {
+            if (fields.get(index).isEmpty()) {
+                empty(index);
+                return null;
+            }
+            return signedNumber(index);
+        }
+
         /** The field at {@code index} as an unsigned decimal, or null where it is empty. */
         public @Nullable Long numberOrNothing(int index) {
             if (fields.get(index).isEmpty()) {

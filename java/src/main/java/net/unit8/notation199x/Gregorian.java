@@ -16,10 +16,23 @@ import java.util.OptionalLong;
  * {@link #EPOCH_DAY_MAX} that are the days of those years. A question about a day outside it is
  * answered that there is none, so a caller that moves a day by a number of months asks where it
  * landed and is told whether it is a day.
+ *
+ * <p>That domain is the date's and not the calendar's. The calendar goes on past it, and an
+ * instant reaches a year further on either side, so what is worked out from a year, a month and a
+ * day is worked out in two parts: {@link #monthLengthOf} and {@link #countOf} take a year as it
+ * comes and leave it to the caller to have asked whether the year is in the caller's domain, and
+ * the entry points above ask it of a date's. Nothing else in this library works the calendar out,
+ * so a rule about leap years or about the days between a day and 1970-01-01 is written once.
  */
 public final class Gregorian {
 
-    /** A day: its year, its month from 1 to 12, and its day of the month from 1. */
+    /**
+     * A day of the proleptic Gregorian calendar.
+     *
+     * @param year the year, astronomical: the year before 1 is 0
+     * @param month the month, from 1 to 12
+     * @param day the day of the month, from 1
+     */
     public record Day(long year, int month, int day) {}
 
     /** The count of the first day of {@link TemporalText#YEAR_MIN}. */
@@ -34,16 +47,6 @@ public final class Gregorian {
     private Gregorian() {}
 
     /**
-     * Whether {@code year} has a 29 February.
-     *
-     * @param year the year, astronomical: the year before 1 is 0
-     * @return whether it is a leap year
-     */
-    public static boolean isLeapYear(long year) {
-        return (year & 3) == 0 && (year % 100 != 0 || year % 400 == 0);
-    }
-
-    /**
      * How many days a month of a year has, or empty where the year is not one a date holds or the
      * month is not from 1 to 12.
      *
@@ -55,11 +58,7 @@ public final class Gregorian {
         if (!inRange(year) || month < 1 || month > 12) {
             return OptionalInt.empty();
         }
-        return OptionalInt.of(switch (month) {
-            case 2 -> isLeapYear(year) ? 29 : 28;
-            case 4, 6, 9, 11 -> 30;
-            default -> 31;
-        });
+        return OptionalInt.of(monthLengthOf(year, month));
     }
 
     /**
@@ -103,6 +102,21 @@ public final class Gregorian {
 
     private static boolean inRange(long year) {
         return year >= TemporalText.YEAR_MIN && year <= TemporalText.YEAR_MAX;
+    }
+
+    /** How many days a month of a year has, for a month from 1 to 12 and a year the caller has
+     *  asked of its own domain. */
+    static int monthLengthOf(long year, int month) {
+        return switch (month) {
+            case 2 -> isLeapYear(year) ? 29 : 28;
+            case 4, 6, 9, 11 -> 30;
+            default -> 31;
+        };
+    }
+
+    /** Whether {@code year} has a 29 February: 4 divides it and 100 does not, or 400 does. */
+    private static boolean isLeapYear(long year) {
+        return (year & 3) == 0 && (year % 100 != 0 || year % 400 == 0);
     }
 
     /** The count of a day the caller has established exists. The year runs from March, so the leap

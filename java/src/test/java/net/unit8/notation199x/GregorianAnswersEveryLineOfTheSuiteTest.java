@@ -42,6 +42,26 @@ class GregorianAnswersEveryLineOfTheSuiteTest {
         }));
     }
 
+    /** A text is a date exactly where its year, month and day are a day {@link Gregorian} answers. */
+    @Test
+    void aDateTextIsAdmittedWhereTheLineSaysItsDayExists() {
+        assertEquals(List.of(), Suite.wrong("gregorian.txt", 5, line -> {
+            long year = line.signedNumber(0);
+            long month = line.signedNumber(1);
+            long day = line.signedNumber(2);
+            boolean isADay = line.oneOf(3, "DAY", "NONE").equals("DAY");
+            line.signedNumberOrNothing(4);
+            if (month < 0 || month > 99 || day < 0 || day > 99) {
+                return null;
+            }
+            String text = (year >= 0 && year <= 9999 ? "%04d".formatted(year)
+                    : year < 0 && year >= -9999 ? "-%04d".formatted(-year)
+                    : (year > 0 ? "+" : "") + year) + "-%02d-%02d".formatted(month, day);
+            boolean admitted = TemporalText.refusal(TemporalText.Kind.DATE, text).isEmpty();
+            return admitted == isADay ? null : text + " is admitted: " + admitted;
+        }));
+    }
+
     @Test
     void theCountsAtTheEndsAreTheEndsOfTheYearsADateHolds() {
         assertEquals(OptionalLong.of(Gregorian.EPOCH_DAY_MIN),
@@ -56,6 +76,23 @@ class GregorianAnswersEveryLineOfTheSuiteTest {
         assertEquals(Optional.empty(), Gregorian.day(Gregorian.EPOCH_DAY_MAX + 1));
         assertEquals(Optional.empty(), Gregorian.day(Long.MIN_VALUE));
         assertEquals(Optional.empty(), Gregorian.day(Long.MAX_VALUE));
+    }
+
+    /** What the entry point answers for a year a date holds is what the arithmetic under it says,
+     *  and the arithmetic goes on past those years where the entry point does not. */
+    @Test
+    void theArithmeticUnderTheEntryPointGoesOnWhereTheEntryPointStops() {
+        for (long year : new long[] {TemporalText.YEAR_MIN, -400, -100, -4, 0, 4, 100, 400, 2024,
+                TemporalText.YEAR_MAX}) {
+            for (int month = 1; month <= 12; month++) {
+                assertEquals(OptionalInt.of(Gregorian.monthLengthOf(year, month)),
+                        Gregorian.lengthOfMonth(year, month), year + "-" + month);
+            }
+        }
+        for (long year : new long[] {TemporalText.YEAR_MAX + 1, 1_000_000_000L, -1_000_000_000L}) {
+            assertEquals(OptionalInt.empty(), Gregorian.lengthOfMonth(year, 2), "" + year);
+            assertEquals(29, Gregorian.monthLengthOf(year, 2), "" + year);
+        }
     }
 
     @Test

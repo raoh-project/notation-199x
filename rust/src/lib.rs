@@ -49,7 +49,7 @@ mod white_space;
 
 pub use case::{lowercase, lowercase_within, uppercase, uppercase_within};
 pub use gregorian::{
-    EPOCH_DAY_MAX, EPOCH_DAY_MIN, GregorianDay, day_of, epoch_day, is_leap_year, length_of_month,
+    EPOCH_DAY_MAX, EPOCH_DAY_MIN, GregorianDay, day_of, epoch_day, length_of_month,
 };
 pub use normalization::{
     Form, Nfc, Nfd, Nfkc, Nfkd, Normalizer, append_normalized, normalize, normalize_within,

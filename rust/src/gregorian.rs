@@ -9,6 +9,13 @@
 //! are the days of those years. A question about a day outside it is answered that there is none,
 //! so a caller that moves a day by a number of months asks where it landed and is told whether it
 //! is a day.
+//!
+//! That domain is the date's and not the calendar's. The calendar goes on past it, and an instant
+//! reaches a year further on either side, so what is worked out from a year, a month and a day is
+//! worked out in two parts: `month_length_of` and `count_of` take a year as it comes and leave it to
+//! the caller to have asked whether the year is in the caller's domain, and the entry points here
+//! ask it of a date's. Nothing else in this crate works the calendar out, so a rule about leap years
+//! or about the days between a day and 1970-01-01 is written once.
 
 use crate::temporal::{YEAR_MAX, YEAR_MIN};
 
@@ -31,24 +38,27 @@ pub const EPOCH_DAY_MAX: i64 = 365_241_780_471;
 /// Days from 0000-03-01 to 1970-01-01, which the counts below are taken from.
 const DAYS_TO_EPOCH: i64 = 719_468;
 
-/// Whether `year` has a 29 February.
-pub fn is_leap_year(year: i64) -> bool {
-    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
-}
-
 /// How many days a month of a year has, or nothing where the year is not one a date holds or the
 /// month is not from 1 to 12.
 pub fn length_of_month(year: i64, month: u32) -> Option<u32> {
-    if !(YEAR_MIN..=YEAR_MAX).contains(&year) {
-        return None;
-    }
+    ((YEAR_MIN..=YEAR_MAX).contains(&year) && (1..=12).contains(&month))
+        .then(|| month_length_of(year, month))
+}
+
+/// How many days a month of a year has, for a month from 1 to 12 and a year the caller has asked
+/// of its own domain.
+pub(crate) fn month_length_of(year: i64, month: u32) -> u32 {
     match month {
-        2 if is_leap_year(year) => Some(29),
-        2 => Some(28),
-        4 | 6 | 9 | 11 => Some(30),
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => Some(31),
-        _ => None,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
     }
+}
+
+/// Whether `year` has a 29 February: 4 divides it and 100 does not, or 400 does.
+fn is_leap_year(year: i64) -> bool {
+    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 }
 
 /// The count of a day: how many days it is from 1970-01-01, negative before it. Nothing where the
