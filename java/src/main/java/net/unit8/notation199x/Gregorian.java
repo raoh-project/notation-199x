@@ -33,7 +33,20 @@ public final class Gregorian {
      * @param month the month, from 1 to 12
      * @param day the day of the month, from 1
      */
-    public record Day(long year, int month, int day) {}
+    public record Day(long year, int month, int day) {
+
+        /**
+         * A day is one there is, so what holds a {@code Day} holds a day.
+         *
+         * @throws IllegalArgumentException where the three do not name a day of a year a date holds
+         */
+        public Day {
+            if (epochDay(year, month, day).isEmpty()) {
+                throw new IllegalArgumentException(
+                        year + "-" + month + "-" + day + " is not a day of a year a date holds");
+            }
+        }
+    }
 
     /** The count of the first day of {@link TemporalText#YEAR_MIN}. */
     public static final long EPOCH_DAY_MIN = -365_243_219_162L;

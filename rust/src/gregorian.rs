@@ -19,15 +19,38 @@
 
 use crate::temporal::{YEAR_MAX, YEAR_MIN};
 
-/// A day: its year, its month from 1 to 12, and its day of the month from 1.
+/// A day of the proleptic Gregorian calendar, of a year a date holds.
+///
+/// Only a day there is can be made, so what holds one holds a day.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct GregorianDay {
+    year: i64,
+    month: u32,
+    day: u32,
+}
+
+impl GregorianDay {
+    /// The day a year, a month and a day name, or nothing where they name none of a year a date
+    /// holds.
+    pub fn new(year: i64, month: u32, day: u32) -> Option<GregorianDay> {
+        epoch_day(year, month, day)?;
+        Some(GregorianDay { year, month, day })
+    }
+
     /// The year, astronomical: the year before 1 is 0.
-    pub year: i64,
+    pub fn year(&self) -> i64 {
+        self.year
+    }
+
     /// The month, from 1 to 12.
-    pub month: u32,
+    pub fn month(&self) -> u32 {
+        self.month
+    }
+
     /// The day of the month, from 1.
-    pub day: u32,
+    pub fn day(&self) -> u32 {
+        self.day
+    }
 }
 
 /// The count of the first day of [`YEAR_MIN`](crate::YEAR_MIN).

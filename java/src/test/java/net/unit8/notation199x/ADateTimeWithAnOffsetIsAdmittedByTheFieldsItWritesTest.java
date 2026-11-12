@@ -10,6 +10,7 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.Year;
 import java.time.ZoneOffset;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Random;
 
@@ -53,11 +54,11 @@ class ADateTimeWithAnOffsetIsAdmittedByTheFieldsItWritesTest {
             int offsetMinute = random.nextInt(0, 62);
             boolean withOffsetSecond = random.nextInt(4) == 0;
             int offsetSecond = random.nextInt(0, 62);
-            String text = "%s-%02d-%02dT%02d:%02d%s%s%02d:%02d%s".formatted(
+            String text = String.format(Locale.ROOT, "%s-%02d-%02dT%02d:%02d%s%s%02d:%02d%s", 
                     year(year), month, day, hour, minute,
-                    withSecond ? ":%02d".formatted(second) : "",
+                    withSecond ? String.format(Locale.ROOT, ":%02d", second) : "",
                     negative ? "-" : "+", offsetHour, offsetMinute,
-                    withOffsetSecond ? ":%02d".formatted(offsetSecond) : "");
+                    withOffsetSecond ? String.format(Locale.ROOT, ":%02d", offsetSecond) : "");
             int sign = negative ? -1 : 1;
             boolean built = builds(() -> LocalDate.of(year, month, day))
                     && builds(() -> LocalTime.of(hour, minute, withSecond ? second : 0))
@@ -115,9 +116,9 @@ class ADateTimeWithAnOffsetIsAdmittedByTheFieldsItWritesTest {
     /** A year as the forms write it: four digits unsigned from 0000 to 9999, signed past them. */
     private static String year(int year) {
         if (year >= 0 && year <= 9999) {
-            return "%04d".formatted(year);
+            return String.format(Locale.ROOT, "%04d", year);
         }
-        return year < 0 ? "-%04d".formatted(-year) : "+" + year;
+        return year < 0 ? String.format(Locale.ROOT, "-%04d", -year) : "+" + year;
     }
 
     private static boolean builds(Runnable factory) {

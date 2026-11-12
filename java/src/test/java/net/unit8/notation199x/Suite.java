@@ -127,6 +127,15 @@ public final class Suite {
             return Long.parseLong(field);
         }
 
+        /** The field at {@code index} as a signed decimal that an {@code int} holds. */
+        public int signedInt(int index) {
+            long value = signedNumber(index);
+            if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+                throw wrong(index, "a signed decimal an int holds");
+            }
+            return (int) value;
+        }
+
         /** The field at {@code index} as a signed decimal, or null where it is empty. */
         public @Nullable Long signedNumberOrNothing(int index) {
             if (fields.get(index).isEmpty()) {

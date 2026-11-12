@@ -37,6 +37,10 @@ The Java tests read `ucd/`, `suite/` and `image/`, so they run in `java/`:
 cd java && mvn test
 ```
 
+The Java tests run in the locale `ar-EG`, whose digits are not ASCII. A rule here reads ASCII, so a
+test that writes a number with the default locale writes text no rule reads and fails; write it with
+`String.format(Locale.ROOT, ...)`.
+
 NullAway checks the main Java sources against `@NullMarked` on every compile. Nothing else of Error
 Prone runs.
 

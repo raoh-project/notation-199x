@@ -2,12 +2,15 @@ package net.unit8.notation199x;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -20,8 +23,8 @@ class GregorianAnswersEveryLineOfTheSuiteTest {
     void everyDayIsACountOrNoneAsTheLineSays() {
         assertEquals(List.of(), Suite.wrong("gregorian.txt", 5, line -> {
             long year = line.signedNumber(0);
-            int month = (int) line.signedNumber(1);
-            int day = (int) line.signedNumber(2);
+            int month = line.signedInt(1);
+            int day = line.signedInt(2);
             boolean isADay = line.oneOf(3, "DAY", "NONE").equals("DAY");
             OptionalLong asked = Gregorian.epochDay(year, month, day);
             String said = year + "-" + month + "-" + day;
@@ -58,9 +61,9 @@ class GregorianAnswersEveryLineOfTheSuiteTest {
             if (month < 0 || month > 99 || day < 0 || day > 99) {
                 return null;
             }
-            String text = (year >= 0 && year <= 9999 ? "%04d".formatted(year)
-                    : year < 0 && year >= -9999 ? "-%04d".formatted(-year)
-                    : (year > 0 ? "+" : "") + year) + "-%02d-%02d".formatted(month, day);
+            String text = (year >= 0 && year <= 9999 ? String.format(Locale.ROOT, "%04d", year)
+                    : year < 0 && year >= -9999 ? String.format(Locale.ROOT, "-%04d", -year)
+                    : (year > 0 ? "+" : "") + year) + String.format(Locale.ROOT, "-%02d-%02d", month, day);
             boolean admitted = TemporalText.refusal(TemporalText.Kind.DATE, text).isEmpty();
             asked[isADay ? 0 : 1]++;
             return admitted == isADay ? null : text + " is admitted: " + admitted;
@@ -99,6 +102,16 @@ class GregorianAnswersEveryLineOfTheSuiteTest {
         for (long year : new long[] {TemporalText.YEAR_MAX + 1, 1_000_000_000L, -1_000_000_000L}) {
             assertEquals(OptionalInt.empty(), Gregorian.lengthOfMonth(year, 2), "" + year);
             assertEquals(29, Gregorian.monthLengthOf(year, 2), "" + year);
+        }
+    }
+
+    @Test
+    void aDayThereIsNotCannotBeMade() {
+        assertEquals(2024, new Gregorian.Day(2024, 2, 29).year());
+        for (long[] each : new long[][] {{2024, 13, 40}, {2023, 2, 29}, {2024, 0, 1}, {2024, 1, 0},
+                {TemporalText.YEAR_MAX + 1, 1, 1}, {TemporalText.YEAR_MIN - 1, 12, 31}}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> new Gregorian.Day(each[0], (int) each[1], (int) each[2]), Arrays.toString(each));
         }
     }
 

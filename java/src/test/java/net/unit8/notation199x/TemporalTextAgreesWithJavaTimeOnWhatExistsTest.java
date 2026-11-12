@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Random;
 import java.util.function.Supplier;
@@ -39,10 +40,10 @@ class TemporalTextAgreesWithJavaTimeOnWhatExistsTest {
     /** A year as the grammar spells it: no sign for 0000 to 9999, otherwise a sign and no padding. */
     private static String year(long year) {
         if (year >= 0 && year <= 9999) {
-            return "%04d".formatted(year);
+            return String.format(Locale.ROOT, "%04d", year);
         }
         if (year < 0 && year >= -9999) {
-            return "-%04d".formatted(-year);
+            return String.format(Locale.ROOT, "-%04d", -year);
         }
         return (year > 0 ? "+" : "-") + Math.abs(year);
     }
@@ -69,7 +70,7 @@ class TemporalTextAgreesWithJavaTimeOnWhatExistsTest {
         for (long year : YEAR_EDGES) {
             for (int month = 0; month <= 13; month++) {
                 for (int day = 0; day <= 32; day++) {
-                    String text = year(year) + "-%02d-%02d".formatted(month, day);
+                    String text = year(year) + String.format(Locale.ROOT, "-%02d-%02d", month, day);
                     assertEquals(localDateExists(year, month, day),
                             TemporalText.refusal(Kind.DATE, text).isEmpty(), text);
                 }
@@ -81,11 +82,11 @@ class TemporalTextAgreesWithJavaTimeOnWhatExistsTest {
     void aTimeOfDayExistsWhereALocalTimeHolds() {
         for (int hour = 0; hour <= 25; hour++) {
             for (int minute = 0; minute <= 61; minute++) {
-                String text = "%02d:%02d".formatted(hour, minute);
+                String text = String.format(Locale.ROOT, "%02d:%02d", hour, minute);
                 assertEquals(localTimeExists(hour, minute, 0),
                         TemporalText.refusal(Kind.TIME, text).isEmpty(), text);
                 for (int second = 0; second <= 61; second += second < 58 ? 19 : 1) {
-                    String withSeconds = text + ":%02d".formatted(second);
+                    String withSeconds = text + String.format(Locale.ROOT, ":%02d", second);
                     assertEquals(localTimeExists(hour, minute, second),
                             TemporalText.refusal(Kind.TIME, withSeconds).isEmpty(), withSeconds);
                 }
@@ -114,10 +115,10 @@ class TemporalTextAgreesWithJavaTimeOnWhatExistsTest {
             String fraction = random.nextInt(6) == 0 ? "." + "123456789".substring(0, 1 + random.nextInt(9)) : "";
             String offset = random.nextInt(3) == 0 ? "Z"
                     : (random.nextBoolean() ? "+" : "-")
-                            + "%02d:%02d".formatted(offsetHours[random.nextInt(offsetHours.length)],
+                            + String.format(Locale.ROOT, "%02d:%02d", offsetHours[random.nextInt(offsetHours.length)],
                                     random.nextInt(60))
-                            + (random.nextInt(4) == 0 ? ":%02d".formatted(random.nextInt(60)) : "");
-            String text = year(year) + "-%02d-%02dT%02d:%02d:%02d%s%s".formatted(
+                            + (random.nextInt(4) == 0 ? String.format(Locale.ROOT, ":%02d", random.nextInt(60)) : "");
+            String text = year(year) + String.format(Locale.ROOT, "-%02d-%02dT%02d:%02d:%02d%s%s", 
                     1 + random.nextInt(random.nextInt(9) == 0 ? 14 : 12),
                     1 + random.nextInt(random.nextInt(9) == 0 ? 33 : 28),
                     hour, minute, second, fraction, offset);

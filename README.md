@@ -91,7 +91,8 @@ of a date: the years from -999999999 to 999999999, and the counts of the days of
 -365243219162 to 365241780471. A question about a year, a month, a day or a count outside it is
 answered that there is none, and not with a day that is another. The year is astronomical, so the
 year before 1 is 0, and is a leap year. A text is a date exactly where its year, month and day are
-a day these answer.
+a day these answer. The day an answer holds is one there is: no
+value of that type can be made of a year, a month and a day that name none.
 
 What a caller asks about the patterns it holds beyond that, and how much it is willing to spend on
 an answer, is the caller's. The operations on machines take their limits as an argument. Souther's

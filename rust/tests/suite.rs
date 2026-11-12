@@ -218,7 +218,7 @@ fn gregorian_days_answer_every_line_of_the_suite() {
             return Some(format!("{said} is {asked:?}, not {count}"));
         }
         let back = day_of(count);
-        (back != Some(GregorianDay { year, month, day }))
+        (back != GregorianDay::new(year, month, day))
             .then(|| format!("the count {count} is {back:?}, not {said}"))
     });
 }
@@ -262,25 +262,33 @@ fn a_date_text_is_admitted_where_the_line_says_its_day_exists() {
 }
 
 #[test]
+fn a_day_there_is_not_cannot_be_made() {
+    assert_eq!(
+        GregorianDay::new(2024, 2, 29).map(|day| day.year()),
+        Some(2024)
+    );
+    for (year, month, day) in [
+        (2024, 13, 40),
+        (2023, 2, 29),
+        (2024, 0, 1),
+        (2024, 1, 0),
+        (YEAR_MAX + 1, 1, 1),
+        (YEAR_MIN - 1, 12, 31),
+    ] {
+        assert_eq!(
+            GregorianDay::new(year, month, day),
+            None,
+            "{year}-{month}-{day}"
+        );
+    }
+}
+
+#[test]
 fn the_counts_at_the_ends_are_the_ends_of_the_years_a_date_holds() {
     assert_eq!(epoch_day(YEAR_MIN, 1, 1), Some(EPOCH_DAY_MIN));
     assert_eq!(epoch_day(YEAR_MAX, 12, 31), Some(EPOCH_DAY_MAX));
-    assert_eq!(
-        day_of(EPOCH_DAY_MIN),
-        Some(GregorianDay {
-            year: YEAR_MIN,
-            month: 1,
-            day: 1
-        })
-    );
-    assert_eq!(
-        day_of(EPOCH_DAY_MAX),
-        Some(GregorianDay {
-            year: YEAR_MAX,
-            month: 12,
-            day: 31
-        })
-    );
+    assert_eq!(day_of(EPOCH_DAY_MIN), GregorianDay::new(YEAR_MIN, 1, 1));
+    assert_eq!(day_of(EPOCH_DAY_MAX), GregorianDay::new(YEAR_MAX, 12, 31));
     for beyond in [EPOCH_DAY_MIN - 1, EPOCH_DAY_MAX + 1, i64::MIN, i64::MAX] {
         assert_eq!(day_of(beyond), None, "{beyond}");
     }
@@ -298,26 +306,16 @@ fn every_count_is_the_day_after_the_one_before_it() {
     let mut previous = day_of(-800_000).expect("a day");
     for count in -799_999..=800_000 {
         let day = day_of(count).expect("a day");
-        let expected = if day.day > 1 {
-            GregorianDay {
-                day: previous.day + 1,
-                ..previous
-            }
-        } else if day.month > 1 {
-            GregorianDay {
-                month: previous.month + 1,
-                day: 1,
-                ..previous
-            }
+        let expected = if day.day() > 1 {
+            GregorianDay::new(previous.year(), previous.month(), previous.day() + 1)
+        } else if day.month() > 1 {
+            GregorianDay::new(previous.year(), previous.month() + 1, 1)
         } else {
-            GregorianDay {
-                year: previous.year + 1,
-                month: 1,
-                day: 1,
-            }
+            GregorianDay::new(previous.year() + 1, 1, 1)
         };
+        let expected = expected.expect("the day after one there is");
         assert_eq!(day, expected, "{count}");
-        assert_eq!(epoch_day(day.year, day.month, day.day), Some(count));
+        assert_eq!(epoch_day(day.year(), day.month(), day.day()), Some(count));
         previous = day;
     }
     let mut state: u64 = 1970;
@@ -329,7 +327,7 @@ fn every_count_is_the_day_after_the_one_before_it() {
         let count = EPOCH_DAY_MIN + ((state >> 11) % span) as i64;
         let day = day_of(count).expect("a day");
         assert_eq!(
-            epoch_day(day.year, day.month, day.day),
+            epoch_day(day.year(), day.month(), day.day()),
             Some(count),
             "{count}"
         );
